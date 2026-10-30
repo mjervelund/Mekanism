@@ -40,6 +40,8 @@ public abstract class DynamicBufferedResourceNetwork<RESOURCE extends Resource, 
     private final List<CONTAINER> containers;
     private RESOURCE lastType = containerType().emptyResource();
     private long prevTransferAmount;
+    //Reused every tick by tickEmit to avoid allocating a new list of targets for every network each tick; always cleared after use
+    private final List<ResourceHandler<RESOURCE>> emitTargets = new ArrayList<>();
 
     protected DynamicBufferedResourceNetwork(UUID networkID, ContainerCreator<RESOURCE, CONTAINER> containerCreator) {
         super(networkID);
@@ -229,19 +231,23 @@ public abstract class DynamicBufferedResourceNetwork<RESOURCE extends Resource, 
     }
 
     private long tickEmit(RESOURCE typeToSend, long amountToSend, TransactionContext transaction) {
-        List<ResourceHandler<RESOURCE>> targets = null;
         for (Map<Direction, ResourceHandler<RESOURCE>> acceptors : acceptorCache.getAcceptorValues()) {
+            //Note: We add the target regardless of if we can insert into it, as it skips the extra check,
+            // and sendToAcceptors needs to calculate if the target can accept anyway
+            //Note: Plain loop instead of addAll, as addAll allocates an array copy of the values
             for (ResourceHandler<RESOURCE> acceptor : acceptors.values()) {
-                if (targets == null) {
-                    //Lazily initialize the list of targets, which allows us to also skip attempting to start emitting
-                    targets = new ArrayList<>();
-                }
-                //Note: We add the target regardless of if we can insert into it, as it skips the extra check,
-                // and sendToAcceptors needs to calculate if the target can accept anyway
-                targets.add(acceptor);
+                emitTargets.add(acceptor);
             }
         }
-        return targets == null ? 0 : ResourceUtils.emit(targets, typeToSend, amountToSend, transaction);
+        if (emitTargets.isEmpty()) {
+            return 0;
+        }
+        try {
+            return ResourceUtils.emit(emitTargets, typeToSend, amountToSend, transaction);
+        } finally {
+            //Don't keep references to the handlers around until the next tick
+            emitTargets.clear();
+        }
     }
 
     @FunctionalInterface
