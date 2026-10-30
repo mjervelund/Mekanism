@@ -1,6 +1,7 @@
 package mekanism.common.network.to_server.qio;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.DecoderException;
 import it.unimi.dsi.fastutil.bytes.Byte2ObjectArrayMap;
 import it.unimi.dsi.fastutil.bytes.Byte2ObjectMap;
 import it.unimi.dsi.fastutil.bytes.Byte2ObjectMaps;
@@ -114,6 +115,10 @@ public record PacketQIOFillCraftingWindow(ResourceKey<Recipe<?>> recipeID, boole
         for (byte slot = 0; slot < slotCount; slot++) {
             byte targetSlot = buffer.readByte();
             int subSourceCount = transferMultiple ? ByteBufCodecs.VAR_INT.decode(buffer) : 1;
+            //Each source is at least two bytes; don't presize the list from a client supplied count that the packet can't hold
+            if (transferMultiple && (subSourceCount < 0 || subSourceCount > buffer.readableBytes() / 2)) {
+                throw new DecoderException("Invalid QIO crafting window source count: " + subSourceCount);
+            }
             List<SingularItemTypeSource> slotSources = new ArrayList<>(subSourceCount);
             sources.put(targetSlot, slotSources);
             for (int i = 0; i < subSourceCount; i++) {
