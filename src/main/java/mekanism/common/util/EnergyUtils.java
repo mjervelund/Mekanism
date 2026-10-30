@@ -149,7 +149,9 @@ public final class EnergyUtils {
           TransactionContext transaction, int slotToSkip) {
         int charged = 0;
         for (int slot = 0, slots = handler.size(); slot < slots; slot++) {
-            if (slot == slotToSkip) {
+            if (slot == slotToSkip || handler.getResource(slot).isEmpty()) {
+                //Skip empty slots before creating an item access and looking up a capability, as this is called every tick
+                // for every slot of a player's inventory by the charge distribution unit and most slots can't hold energy
                 continue;
             }
             //Note: We don't use strict here as we want to allow the item to move to an empty slot if it has to in order to be charged
