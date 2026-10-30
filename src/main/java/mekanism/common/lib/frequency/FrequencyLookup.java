@@ -31,6 +31,12 @@ public class FrequencyLookup<FREQ extends Frequency> extends SavedData {
 
     public static final int MAX_FREQ_LENGTH = 16;
 
+    /// Whether a frequency may be created or selected with this key. Names are limited to what the frequency selector GUI allows, as they are stored and sent to
+    /// everyone who opens a frequency GUI, but packets and computers could otherwise use any string.
+    public static boolean isValidKey(Object key) {
+        return !(key instanceof String name) || !name.isEmpty() && name.length() <= MAX_FREQ_LENGTH;
+    }
+
     private final Map<Object, FREQ> frequencies = new LinkedHashMap<>();
 
     @Nullable
