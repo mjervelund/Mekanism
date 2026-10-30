@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.ints.IntSets;
 import it.unimi.dsi.fastutil.longs.Long2ReferenceMap;
 import it.unimi.dsi.fastutil.longs.Long2ReferenceRBTreeMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
@@ -225,7 +226,8 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
 
     private IntSet tickTransit(ServerLevel level, final long pos, InventoryNetwork network, TransactionContext transaction) {
         //Update stack positions
-        IntSet deletes = new IntOpenHashSet();
+        //Note: We lazily create the set of stacks to delete, as most ticks no stacks reach the end of a transporter
+        IntSet deletes = null;
         //Note: Our calls to getTileEntity are not done with a chunkMap as we don't tend to have that many tiles we
         // are checking at once from here and given this gets called each tick, it would cause unnecessary garbage
         // collection to occur actually causing the tick time to go up slightly.
@@ -235,7 +237,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
             TransporterStack stack = entry.getValue();
             if (!stack.initiatedPath) {//Initiate any paths and remove things that can't go places
                 if (stack.isEmpty() || !recalculate(level, stackId, stack, Long.MAX_VALUE, transaction)) {
-                    deletes.add(stackId);
+                    deletes = markForDeletion(deletes, stackId);
                     continue;
                 }
             }
@@ -246,7 +248,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                 long prevSet = Long.MAX_VALUE;
                 if (stack.hasPath()) {
                     if (stack.getPath().getLong(0) == pos) { //Necessary for transition reasons, not sure why
-                        deletes.add(stackId);
+                        deletes = markForDeletion(deletes, stackId);
                         continue;
                     }
                     int currentIndex = stack.getPath().indexOf(pos);
@@ -257,7 +259,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                             LogisticalTransporterBase transmitter = network.getTransmitter(next);
                             if (stack.canInsertToTransporter(transmitter, stack.getSide(this), this)) {
                                 transmitter.entityEntering(stack, stack.progress % 100);
-                                deletes.add(stackId);
+                                deletes = markForDeletion(deletes, stackId);
                                 continue;
                             }
                             prevSet = next;
@@ -278,7 +280,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                                     //Nothing was rejected (it was all accepted); remove the stack from the prediction
                                     // tracker and schedule this stack for deletion. Continue the loop thereafter
                                     TransporterManager.remove(level, stack, transaction);
-                                    deletes.add(stackId);
+                                    deletes = markForDeletion(deletes, stackId);
                                     continue;
                                 }
                                 //Some portion of the stack got rejected; save the remainder and
@@ -290,7 +292,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                     }
                 }
                 if (!recalculate(level, stackId, stack, prevSet, transaction)) {
-                    deletes.add(stackId);
+                    deletes = markForDeletion(deletes, stackId);
                 } else if (prevSet == Long.MAX_VALUE) {
                     stack.progress = 50;
                 } else {
@@ -327,10 +329,18 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                     }
                 }
                 if (tryRecalculate && !recalculate(level, stackId, stack, Long.MAX_VALUE, transaction)) {
-                    deletes.add(stackId);
+                    deletes = markForDeletion(deletes, stackId);
                 }
             }
         }
+        return deletes == null ? IntSets.EMPTY_SET : deletes;
+    }
+
+    private static IntSet markForDeletion(@Nullable IntSet deletes, int stackId) {
+        if (deletes == null) {
+            deletes = new IntOpenHashSet();
+        }
+        deletes.add(stackId);
         return deletes;
     }
 
