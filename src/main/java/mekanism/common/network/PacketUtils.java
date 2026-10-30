@@ -7,9 +7,14 @@ import java.util.List;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.function.Function;
+import mekanism.api.security.IBlockSecurityUtils;
+import mekanism.api.security.IEntitySecurityUtils;
 import mekanism.common.Mekanism;
 import mekanism.common.config.MekanismConfig;
 import mekanism.common.content.filter.FilterManager;
+import mekanism.common.inventory.container.entity.IEntityContainer;
+import mekanism.common.inventory.container.tile.MekanismTileContainer;
+import mekanism.common.inventory.container.tile.QIODashboardContainer;
 import mekanism.common.lib.math.Range3D;
 import mekanism.common.lib.transmitter.DynamicBufferedNetwork;
 import mekanism.common.tile.component.TileComponentConfig;
@@ -31,9 +36,12 @@ import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.connection.ConnectionType;
@@ -84,7 +92,7 @@ public class PacketUtils {
 
     @Nullable
     public static TileComponentEjector ejector(IPayloadContext context, BlockPos pos) {
-        if (blockEntity(context, pos) instanceof ISideConfiguration sideConfig) {
+        if (usableBlockEntity(context, pos) instanceof ISideConfiguration sideConfig) {
             return sideConfig.getEjector();
         }
         return null;
@@ -92,7 +100,7 @@ public class PacketUtils {
 
     @Nullable
     public static TileComponentConfig config(IPayloadContext context, BlockPos pos) {
-        if (blockEntity(context, pos) instanceof ISideConfiguration sideConfig) {
+        if (usableBlockEntity(context, pos) instanceof ISideConfiguration sideConfig) {
             return sideConfig.getConfig();
         }
         return null;
@@ -100,7 +108,7 @@ public class PacketUtils {
 
     @Nullable
     public static FilterManager<?> filterManager(IPayloadContext context, BlockPos pos) {
-        if (blockEntity(context, pos) instanceof ITileFilterHolder<?> filterHolder) {
+        if (usableBlockEntity(context, pos) instanceof ITileFilterHolder<?> filterHolder) {
             return filterHolder.getFilterManager();
         }
         return null;
@@ -114,6 +122,55 @@ public class PacketUtils {
     @Nullable
     public static BlockEntity blockEntity(IPayloadContext context, long pos) {
         return WorldUtils.getTileEntity(context.player().level(), pos);
+    }
+
+    /// For packets received by the server: gets the block entity at the given position, if the sending player may use it (see
+    /// [#canUse(Player, BlockEntity)]).
+    @Nullable
+    public static BlockEntity usableBlockEntity(IPayloadContext context, BlockPos pos) {
+        return usable(context.player(), WorldUtils.getTileEntity(context.player().level(), pos));
+    }
+
+    /// For packets received by the server: gets the block entity of the given type at the given position, if the sending player may use it (see
+    /// [#canUse(Player, BlockEntity)]).
+    @Nullable
+    public static <T extends BlockEntity> T usableBlockEntity(Class<T> clazz, IPayloadContext context, BlockPos pos) {
+        return usable(context.player(), WorldUtils.getTileEntity(clazz, context.player().level(), pos));
+    }
+
+    @Nullable
+    private static <T extends BlockEntity> T usable(Player player, @Nullable T tile) {
+        return tile != null && canUse(player, tile) ? tile : null;
+    }
+
+    /// Packets from the client carry a client supplied position, so before acting on a block entity check that the player could use it: they have its menu open
+    /// or are within reach, and security allows them to access it.
+    public static boolean canUse(Player player, BlockEntity tile) {
+        BlockEntity menuTile = switch (player.containerMenu) {
+            case MekanismTileContainer<?> container -> container.getTileEntity();
+            case QIODashboardContainer container -> container.getTileEntity();
+            default -> null;
+        };
+        BlockPos pos = tile.getBlockPos();
+        if (menuTile != tile && !inReach(player, Vec3.atCenterOf(pos), player.blockInteractionRange())) {
+            return false;
+        }
+        return IBlockSecurityUtils.INSTANCE.canAccess(player, player.level(), pos, tile);
+    }
+
+    /// Within the player's interaction range, plus some leeway for latency and large blocks/entities.
+    private static boolean inReach(Player player, Vec3 target, double range) {
+        double max = range + 4;
+        return player.getEyePosition().distanceToSqr(target) <= max * max;
+    }
+
+    /// Entity equivalent of [#canUse(Player, BlockEntity)].
+    public static boolean canUse(Player player, Entity entity) {
+        boolean inMenu = player.containerMenu instanceof IEntityContainer<?> container && container.getEntity() == entity;
+        if (!inMenu && !inReach(player, entity.getBoundingBox().getCenter(), player.entityInteractionRange())) {
+            return false;
+        }
+        return IEntitySecurityUtils.INSTANCE.canAccess(player, entity);
     }
 
     /// Send this message to the server.

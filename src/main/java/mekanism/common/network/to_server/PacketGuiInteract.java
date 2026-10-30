@@ -10,6 +10,7 @@ import mekanism.common.inventory.container.MekanismContainer;
 import mekanism.common.lib.inventory.IAdvancedTransportEjector;
 import mekanism.common.lib.security.SecurityUtils;
 import mekanism.common.network.IMekanismPacket;
+import mekanism.common.network.PacketUtils;
 import mekanism.common.tile.TileEntityLogisticalSorter;
 import mekanism.common.tile.TileEntitySecurityDesk;
 import mekanism.common.tile.base.TileEntityMekanism;
@@ -30,7 +31,6 @@ import mekanism.common.tile.qio.TileEntityQIOExporter;
 import mekanism.common.tile.qio.TileEntityQIOImporter;
 import mekanism.common.tile.qio.TileEntityQIORedstoneAdapter;
 import mekanism.common.util.TransporterUtils;
-import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -75,7 +75,7 @@ public record PacketGuiInteract(GuiInteraction interaction, BlockPos tilePositio
     public void handle(IPayloadContext context) {
         Player player = context.player();
         Level level = player.level();
-        TileEntityMekanism tile = WorldUtils.getTileEntity(TileEntityMekanism.class, level, tilePosition);
+        TileEntityMekanism tile = PacketUtils.usableBlockEntity(TileEntityMekanism.class, context, tilePosition);
         if (tile != null) {
             interaction.consume(level, tile, player, extra);
         }
@@ -236,8 +236,8 @@ public record PacketGuiInteract(GuiInteraction interaction, BlockPos tilePositio
               SecurityUtils.get().decrementSecurityMode(player, IBlockSecurityUtils.INSTANCE.securityCapability(level, tile.getBlockPos(), tile), null)
         ),
 
-        SECURITY_DESK_MODE((_, tile, _, extra) -> {
-            if (tile instanceof TileEntitySecurityDesk desk) {
+        SECURITY_DESK_MODE((_, tile, player, extra) -> {
+            if (tile instanceof TileEntitySecurityDesk desk && desk.ownerMatches(player)) {
                 desk.setSecurityDeskMode(SecurityMode.BY_ID.apply(extra));
             }
         }),
@@ -308,13 +308,13 @@ public record PacketGuiInteract(GuiInteraction interaction, BlockPos tilePositio
             }
         }),
 
-        OVERRIDE_BUTTON((_, tile, _, _) -> {
-            if (tile instanceof TileEntitySecurityDesk desk) {
+        OVERRIDE_BUTTON((_, tile, player, _) -> {
+            if (tile instanceof TileEntitySecurityDesk desk && desk.ownerMatches(player)) {
                 desk.toggleOverride();
             }
         }),
-        REMOVE_TRUSTED((_, tile, _, extra) -> {
-            if (tile instanceof TileEntitySecurityDesk desk) {
+        REMOVE_TRUSTED((_, tile, player, extra) -> {
+            if (tile instanceof TileEntitySecurityDesk desk && desk.ownerMatches(player)) {
                 desk.removeTrusted(extra);
             }
         }),

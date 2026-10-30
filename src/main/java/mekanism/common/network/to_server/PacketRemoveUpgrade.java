@@ -3,9 +3,9 @@ package mekanism.common.network.to_server;
 import mekanism.api.upgrade.Upgrade;
 import mekanism.common.Mekanism;
 import mekanism.common.network.IMekanismPacket;
+import mekanism.common.network.PacketUtils;
 import mekanism.common.tile.component.TileComponentUpgrade;
 import mekanism.common.tile.interfaces.IUpgradeTile;
-import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -35,7 +35,7 @@ public record PacketRemoveUpgrade(BlockPos pos, Holder<Upgrade> upgradeType, boo
     public void handle(IPayloadContext context) {
         Player player = context.player();
         Level level = player.level();
-        BlockEntity tile = WorldUtils.getTileEntity(level, pos);
+        BlockEntity tile = PacketUtils.usableBlockEntity(context, pos);
         if (tile instanceof IUpgradeTile upgradeTile && upgradeTile.supportsUpgrades()) {
             TileComponentUpgrade component = upgradeTile.getComponent();
             if (component != null) {//Should never be null here
