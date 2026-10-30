@@ -14,6 +14,8 @@ public class MekanismTicketTypes {
 
     public static final DeferredRegister<TicketType> TICKET_TYPES = DeferredRegister.create(BuiltInRegistries.TICKET_TYPE, Mekanism.MODID);
 
-    //TODO - 26.3: Figure out what flags we should be passing to this ticket type. Ender pearls use FLAG_LOADING, FLAG_SIMULATION, FLAG_KEEP_DIMENSION_ACTIVE
-    public static final Holder<TicketType> ROBIT_CHUNK_UNLOAD = TICKET_TYPES.register("robit_chunk_unload", () -> new TicketType(SharedConstants.TICKS_PER_SECOND, TicketType.FLAG_KEEP_DIMENSION_ACTIVE));
+    //Note: The ticket needs to both load and simulate the chunk so that the robit gets ticked again and can teleport to its owner.
+    // Without FLAG_LOADING and FLAG_SIMULATION the ticket does not keep the chunk loaded at all. This matches the flags vanilla uses for ender pearls
+    public static final Holder<TicketType> ROBIT_CHUNK_UNLOAD = TICKET_TYPES.register("robit_chunk_unload", () -> new TicketType(SharedConstants.TICKS_PER_SECOND,
+          TicketType.FLAG_LOADING | TicketType.FLAG_SIMULATION | TicketType.FLAG_KEEP_DIMENSION_ACTIVE));
 }
