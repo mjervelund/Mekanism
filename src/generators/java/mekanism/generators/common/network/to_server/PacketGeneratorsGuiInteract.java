@@ -4,8 +4,8 @@ import io.netty.buffer.ByteBuf;
 import java.util.function.IntFunction;
 import mekanism.api.functions.TriConsumer;
 import mekanism.common.network.IMekanismPacket;
+import mekanism.common.network.PacketUtils;
 import mekanism.common.tile.base.TileEntityMekanism;
-import mekanism.common.util.WorldUtils;
 import mekanism.generators.common.MekanismGenerators;
 import mekanism.generators.common.tile.fission.TileEntityFissionReactorCasing;
 import mekanism.generators.common.tile.fission.TileEntityFissionReactorLogicAdapter;
@@ -53,7 +53,7 @@ public record PacketGeneratorsGuiInteract(GeneratorsGuiInteraction interaction, 
     @Override
     public void handle(IPayloadContext context) {
         Player player = context.player();
-        TileEntityMekanism tile = WorldUtils.getTileEntity(TileEntityMekanism.class, player.level(), tilePosition);
+        TileEntityMekanism tile = PacketUtils.usableBlockEntity(TileEntityMekanism.class, context, tilePosition);
         if (tile != null) {
             interaction.consume(tile, player, extra);
         }

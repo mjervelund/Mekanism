@@ -5,10 +5,10 @@ import java.util.function.IntFunction;
 import mekanism.api.functions.TriConsumer;
 import mekanism.common.Mekanism;
 import mekanism.common.network.IMekanismPacket;
+import mekanism.common.network.PacketUtils;
 import mekanism.common.tile.base.TileEntityMekanism;
 import mekanism.common.tile.machine.TileEntityDigitalMiner;
 import mekanism.common.tile.qio.TileEntityQIORedstoneAdapter;
-import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -43,7 +43,7 @@ public record PacketTileGuiInteractItem(GuiInteractionItem itemInteraction, Bloc
     @Override
     public void handle(IPayloadContext context) {
         Player player = context.player();
-        TileEntityMekanism tile = WorldUtils.getTileEntity(TileEntityMekanism.class, player.level(), tilePosition);
+        TileEntityMekanism tile = PacketUtils.usableBlockEntity(TileEntityMekanism.class, context, tilePosition);
         if (tile != null) {
             itemInteraction.consume(tile, player, extraItem);
         }

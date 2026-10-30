@@ -6,6 +6,7 @@ import java.util.function.IntFunction;
 import mekanism.common.Mekanism;
 import mekanism.common.MekanismLang;
 import mekanism.common.network.IMekanismPacket;
+import mekanism.common.network.PacketUtils;
 import mekanism.common.registries.MekanismContainerTypes;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -40,7 +41,7 @@ public record PacketEntityButtonPress(ClickedEntityButton buttonClicked, int ent
     public void handle(IPayloadContext context) {
         Player player = context.player();
         Entity entity = player.level().getEntity(entityID);
-        if (entity != null) {
+        if (entity != null && PacketUtils.canUse(player, entity)) {
             player.openMenu(buttonClicked.getProvider(entity));
         }
     }

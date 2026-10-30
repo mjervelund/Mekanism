@@ -8,11 +8,11 @@ import mekanism.common.MekanismLang;
 import mekanism.common.block.attribute.Attribute;
 import mekanism.common.block.attribute.AttributeGui;
 import mekanism.common.network.IMekanismPacket;
+import mekanism.common.network.PacketUtils;
 import mekanism.common.registries.MekanismContainerTypes;
 import mekanism.common.tile.base.TileEntityMekanism;
 import mekanism.common.tile.multiblock.TileEntityBoilerCasing;
 import mekanism.common.tile.multiblock.TileEntityInductionCasing;
-import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -46,7 +46,7 @@ public record PacketTileButtonPress(ClickedTileButton buttonClicked, BlockPos po
     @Override
     public void handle(IPayloadContext context) {
         Player player = context.player();
-        TileEntityMekanism tile = WorldUtils.getTileEntity(TileEntityMekanism.class, player.level(), pos);
+        TileEntityMekanism tile = PacketUtils.usableBlockEntity(TileEntityMekanism.class, context, pos);
         if (tile != null) {
             player.openMenu(buttonClicked.getProvider(tile));
         }
