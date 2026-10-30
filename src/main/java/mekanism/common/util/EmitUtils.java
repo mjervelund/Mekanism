@@ -1,10 +1,10 @@
 package mekanism.common.util;
 
 import com.google.common.primitives.Ints;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import mekanism.common.lib.distribution.SplitInfo;
 import mekanism.common.lib.distribution.Target;
 import net.neoforged.neoforge.capabilities.BlockCapabilityCache;
@@ -63,7 +63,17 @@ public class EmitUtils {
         }
         //Note: We add the target regardless of if we can insert into it, as it skips the extra check,
         // and sendToAcceptors needs to calculate if the target can accept anyway
-        //TODO: If this ends up being a performance impact, lazy init the list and
-        return caches.stream().<HANDLER>map(BlockCapabilityCache::getCapability).filter(Objects::nonNull).toList();
+        //Note: Plain loop with a lazily initialized list rather than a stream, as this runs every tick for every emitting machine
+        List<HANDLER> handlers = null;
+        for (BlockCapabilityCache<? extends HANDLER, ?> cache : caches) {
+            HANDLER handler = cache.getCapability();
+            if (handler != null) {
+                if (handlers == null) {
+                    handlers = new ArrayList<>(caches.size());
+                }
+                handlers.add(handler);
+            }
+        }
+        return handlers == null ? Collections.emptyList() : handlers;
     }
 }
