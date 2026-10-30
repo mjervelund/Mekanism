@@ -8,6 +8,8 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import mekanism.api.SerializationConstants;
+import mekanism.common.content.oredictionificator.OredictionificatorFilter;
+import mekanism.common.content.transporter.SorterFilter;
 import mekanism.common.inventory.container.MekanismContainer;
 import mekanism.common.inventory.container.sync.SyncableStreamCodec;
 import mekanism.common.lib.collection.HashList;
@@ -19,6 +21,10 @@ import net.minecraft.world.level.storage.ValueOutput.TypedOutputList;
 import org.jspecify.annotations.Nullable;
 
 public class FilterManager<FILTER extends IFilter<?>> {
+
+    /// Filters sent by clients are otherwise only limited by the GUI, which caps text filters at [SorterFilter#MAX_LENGTH] characters but not how many filters
+    /// are added, and every filter is saved and synced to everyone with the GUI open. Generous compared to what a filter list is used for.
+    public static final int MAX_CLIENT_FILTERS = 1_024;
 
     private final Class<? extends FILTER> filterClass;
     protected final Runnable markForSave;
@@ -95,7 +101,7 @@ public class FilterManager<FILTER extends IFilter<?>> {
     }
 
     public void tryAddFilter(IFilter<?> toAdd, boolean save) {
-        if (filterClass.isInstance(toAdd)) {
+        if (filterClass.isInstance(toAdd) && filters.size() < MAX_CLIENT_FILTERS && isValidFromClient(toAdd)) {
             addFilter(filterClass.cast(toAdd), save);
         }
     }
@@ -131,10 +137,21 @@ public class FilterManager<FILTER extends IFilter<?>> {
         if (filterClass.isInstance(currentFilter)) {
             if (newFilter == null) {
                 removeFilter(filterClass.cast(currentFilter));
-            } else {
+            } else if (isValidFromClient(newFilter)) {
                 editFilter(filterClass.cast(currentFilter), filterClass.cast(newFilter));
             }
         }
+    }
+
+    /// Checks the text of a filter from a client against the limit of the GUI's text filter field.
+    private static boolean isValidFromClient(IFilter<?> filter) {
+        String text = switch (filter) {
+            case ITagFilter<?> tagFilter -> tagFilter.getTagName();
+            case IModIDFilter<?> modIDFilter -> modIDFilter.getModID();
+            case OredictionificatorFilter<?, ?, ?> oredictionificatorFilter -> oredictionificatorFilter.getFilterText();
+            default -> "";
+        };
+        return text.length() <= SorterFilter.MAX_LENGTH;
     }
 
     private void editFilter(FILTER currentFilter, FILTER newFilter) {
