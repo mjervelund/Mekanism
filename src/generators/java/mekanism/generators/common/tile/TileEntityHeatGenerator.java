@@ -39,6 +39,7 @@ import mekanism.common.util.WorldUtils;
 import mekanism.generators.common.config.MekanismGeneratorsConfig;
 import mekanism.generators.common.registries.GeneratorsBlocks;
 import mekanism.generators.common.slot.FluidFuelInventorySlot;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.BlockPos.MutableBlockPos;
 import net.minecraft.core.Direction;
@@ -77,6 +78,8 @@ public class TileEntityHeatGenerator extends TileEntityGenerator {
                                                                                      "getLavaFilledPercentage"}, docPlaceholder = "lava tank")
     public BasicFluidTank lavaTank;
     private int producingEnergy = 0;
+    //Number of adjacent lava sources, recounted once a second rather than every tick; -1 means not counted yet
+    private int lavaSides = -1;
     private double lastTransferLoss;
     private double lastEnvironmentLoss;
 
@@ -168,19 +171,8 @@ public class TileEntityHeatGenerator extends TileEntityGenerator {
             boost = 0;
         } else {
             //Otherwise, calculate boost to apply from lava
-            //Only check and add loaded neighbors to the which sides have lava on them
-            MutableBlockPos mutable = new MutableBlockPos();
-            int lavaSides = 0;
-            for (Direction dir : EnumUtils.DIRECTIONS) {
-                //Only check and add loaded neighbors to the which sides have lava on them
-                mutable.setWithOffset(worldPosition, dir);
-                if (WorldUtils.getFluidState(level, mutable).filter(state -> state.is(FluidTags.LAVA)).isPresent()) {
-                    lavaSides++;
-                }
-            }
-            if (getBlockState().getFluidState().is(FluidTags.LAVA)) {
-                //If the heat generator is lava-logged then add it as another side that is adjacent to lava for the heat calculations
-                lavaSides++;
+            if (lavaSides == -1 || ticker % SharedConstants.TICKS_PER_SECOND == 0) {
+                lavaSides = countLavaSides(level);
             }
             boost = passiveLavaAmount * lavaSides;
         }
@@ -188,6 +180,24 @@ public class TileEntityHeatGenerator extends TileEntityGenerator {
             return MathUtils.addClamped(boost, MekanismGeneratorsConfig.generators.heatGenerationNether.get());
         }
         return boost;
+    }
+
+    private int countLavaSides(Level level) {
+        //Only check and add loaded neighbors to the which sides have lava on them
+        MutableBlockPos mutable = new MutableBlockPos();
+        int sides = 0;
+        for (Direction dir : EnumUtils.DIRECTIONS) {
+            //Only check and add loaded neighbors to the which sides have lava on them
+            mutable.setWithOffset(worldPosition, dir);
+            if (WorldUtils.getFluidState(level, mutable).filter(state -> state.is(FluidTags.LAVA)).isPresent()) {
+                sides++;
+            }
+        }
+        if (getBlockState().getFluidState().is(FluidTags.LAVA)) {
+            //If the heat generator is lava-logged then add it as another side that is adjacent to lava for the heat calculations
+            sides++;
+        }
+        return sides;
     }
 
     @Override
