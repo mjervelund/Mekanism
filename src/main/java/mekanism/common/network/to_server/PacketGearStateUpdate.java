@@ -31,6 +31,8 @@ public record PacketGearStateUpdate(GearType gearType, UUID uuid, boolean state)
 
     @Override
     public void handle(IPayloadContext context) {
+        //Only the sender's own state may change: the client always sends its own UUID, but a modified client could send another player's
+        UUID uuid = context.player().getUUID();
         switch (gearType) {
             case JETPACK -> Mekanism.playerState.setJetpackState(uuid, state, false);
             case SCUBA_MASK -> Mekanism.playerState.setScubaMaskState(uuid, state, false);
