@@ -3,6 +3,7 @@ package mekanism.common.network.to_server.frequency;
 import mekanism.api.security.IBlockSecurityUtils;
 import mekanism.common.Mekanism;
 import mekanism.common.lib.frequency.Frequency.FrequencyIdentity;
+import mekanism.common.lib.frequency.FrequencyLookup;
 import mekanism.common.lib.frequency.FrequencyType;
 import mekanism.common.lib.frequency.IFrequencyHandler;
 import mekanism.common.network.IMekanismPacket;
@@ -41,6 +42,9 @@ public record PacketSetTileFrequency(boolean set, TypedIdentity data, BlockPos p
         BlockEntity tile = WorldUtils.getTileEntity(player.level(), pos);
         if (tile instanceof IFrequencyHandler frequencyHandler && IBlockSecurityUtils.INSTANCE.canAccess(player, player.level(), pos, tile)) {
             if (set) {
+                if (!FrequencyLookup.isValidKey(data.data().key())) {
+                    return;
+                }
                 frequencyHandler.setFrequency(data.type(), data.data(), player.getUUID());
             } else {
                 frequencyHandler.removeFrequency(data.type(), data.data(), player.getUUID());

@@ -55,6 +55,9 @@ public record PacketSetItemFrequency(boolean set, TypedIdentity data, Interactio
         if (frequencyComponent != null) {
             ItemResource resource = itemAccess.getResource();
             if (set) {
+                if (!FrequencyLookup.isValidKey(data.data().key())) {
+                    return;
+                }
                 ItemAccessUtils.exchange(itemAccess, resource.with(frequencyComponent, FrequencyAware.create(frequencyType, data.data(), player.getUUID())), null);
             } else {
                 FrequencyAware<FREQ> frequencyAware = resource.get(frequencyComponent);

@@ -42,6 +42,7 @@ import mekanism.common.inventory.container.sync.SyncableDouble;
 import mekanism.common.inventory.container.sync.SyncableLong;
 import mekanism.common.lib.chunkloading.IChunkLoader;
 import mekanism.common.lib.frequency.Frequency.FrequencyIdentity;
+import mekanism.common.lib.frequency.FrequencyLookup;
 import mekanism.common.lib.frequency.FrequencyTypes;
 import mekanism.common.lib.transmitter.TransmissionType;
 import mekanism.common.registries.MekanismBlocks;
@@ -305,6 +306,9 @@ public class TileEntityQuantumEntangloporter extends TileEntityConfigurableMachi
     @ComputerMethod(requiresPublicSecurity = true, methodDescription = "Requires frequency to not already exist and for it to be public so that it can make it as the player who owns the block. Also sets the frequency after creation")
     void createFrequency(String name) throws ComputerException {
         validateSecurityIsPublic();
+        if (!FrequencyLookup.isValidKey(name)) {
+            throw new ComputerException("Frequency names must be 1 to %d characters long.", FrequencyLookup.MAX_FREQ_LENGTH);
+        }
         InventoryFrequency frequency = FrequencyTypes.INVENTORY.getController().getPublicLookup().getFrequency(name);
         if (frequency != null) {
             throw new ComputerException("Unable to create public inventory frequency with name '%s' as one already exists.", name);

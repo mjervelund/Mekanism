@@ -47,6 +47,7 @@ import mekanism.common.inventory.container.sync.SyncableEnum;
 import mekanism.common.inventory.slot.EnergyInventorySlot;
 import mekanism.common.lib.chunkloading.IChunkLoader;
 import mekanism.common.lib.frequency.Frequency.FrequencyIdentity;
+import mekanism.common.lib.frequency.FrequencyLookup;
 import mekanism.common.lib.frequency.FrequencyTypes;
 import mekanism.common.network.PacketUtils;
 import mekanism.common.network.to_client.PacketPortalFX;
@@ -723,6 +724,9 @@ public class TileEntityTeleporter extends TileEntityMekanism implements IChunkLo
     @ComputerMethod(requiresPublicSecurity = true, methodDescription = "Requires frequency to not already exist and for it to be public so that it can make it as the player who owns the block. Also sets the frequency after creation")
     void createFrequency(String name) throws ComputerException {
         validateSecurityIsPublic();
+        if (!FrequencyLookup.isValidKey(name)) {
+            throw new ComputerException("Frequency names must be 1 to %d characters long.", FrequencyLookup.MAX_FREQ_LENGTH);
+        }
         TeleporterFrequency frequency = FrequencyTypes.TELEPORTER.getController().getPublicLookup().getFrequency(name);
         if (frequency != null) {
             throw new ComputerException("Unable to create public teleporter frequency with name '%s' as one already exists.", name);
