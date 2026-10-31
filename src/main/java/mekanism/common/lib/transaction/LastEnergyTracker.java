@@ -20,6 +20,12 @@ public class LastEnergyTracker extends GameTimeBasedJournal<Long> {
     }
 
     public void received(long amount, TransactionContext transaction) {
+        if (amount == 0) {
+            //Nothing to record. Energy networks offer energy to every acceptor every tick, and most of those offers are refused (full machines, output-only
+            // sides), so skip joining the transaction: a snapshot here adds this journal to the transaction's close list for nothing.
+            // The tick rollover does not depend on this call: TileEntityMekanism ticks checkTickChanged every tick.
+            return;
+        }
         updateSnapshots(transaction);
         currentEnergyReceived += amount;
     }
