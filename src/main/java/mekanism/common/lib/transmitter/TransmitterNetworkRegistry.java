@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
@@ -45,6 +46,7 @@ public class TransmitterNetworkRegistry {
     private static final Map<UUID, DynamicNetwork<?, ?, ?>> clientNetworks = new Object2ObjectOpenHashMap<>();
     private static Set<Transmitter<?, ?, ?>> invalidTransmitters = new ObjectOpenHashSet<>();
     private static Set<DynamicNetwork<?, ?, ?>> networksToChange = new ObjectOpenHashSet<>();
+    private static Set<TileEntityTransmitter> transmittersToMarkForSave = new ReferenceOpenHashSet<>();
 
     public static void addClientNetwork(UUID networkID, DynamicNetwork<?, ?, ?> network) {
         if (!clientNetworks.containsKey(networkID)) {
@@ -66,6 +68,7 @@ public class TransmitterNetworkRegistry {
     }
 
     public static void reset() {
+        transmittersToMarkForSave.clear();
         networks.clear();
         networksToChange.clear();
         invalidTransmitters.clear();
@@ -109,6 +112,32 @@ public class TransmitterNetworkRegistry {
         }
     }
 
+    /// Marks the transmitter's chunk as needing a save at the end of the current server tick, instead of right away.
+    ///
+    /// Use this for transmitters whose saved data changed as a side effect of saving *another* transmitter (network save shares): that runs while vanilla
+    /// saves chunks, for example from inside `ChunkMap#saveChunksEagerly`, which iterates the set of chunks waiting to be saved. Marking a chunk unsaved
+    /// there adds to that set during its iteration, which can corrupt it (and later crash with an `ArrayIndexOutOfBoundsException` in
+    /// `LongLinkedOpenHashSet.rehash`). The end of the server tick runs after every level has ticked, outside any chunk saving.
+    public static void markForSaveAtEndOfTick(TileEntityTransmitter tile) {
+        if (tile.getLevel() == null || tile.getLevel().isClientSide()) {
+            tile.markForSave();
+        } else {
+            transmittersToMarkForSave.add(tile);
+        }
+    }
+
+    private static void markTransmittersForSave() {
+        if (!transmittersToMarkForSave.isEmpty()) {
+            Set<TileEntityTransmitter> toMark = transmittersToMarkForSave;
+            transmittersToMarkForSave = new ReferenceOpenHashSet<>();
+            for (TileEntityTransmitter tile : toMark) {
+                if (!tile.isRemoved()) {
+                    tile.markForSave();
+                }
+            }
+        }
+    }
+
     public static void registerChangedNetwork(DynamicNetwork<?, ?, ?> network) {
         networksToChange.add(network);
     }
@@ -124,6 +153,7 @@ public class TransmitterNetworkRegistry {
 
     @SubscribeEvent
     public static void onTick(ServerTickEvent.Post event) {
+        markTransmittersForSave();
         handleChangedChunks();
         removeInvalidTransmitters();
         assignOrphans();
