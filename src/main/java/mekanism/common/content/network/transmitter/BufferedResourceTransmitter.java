@@ -14,6 +14,7 @@ import mekanism.api.resource.LargeResourceStack;
 import mekanism.common.lib.transmitter.ConnectionType;
 import mekanism.common.lib.transmitter.DynamicBufferedResourceNetwork;
 import mekanism.common.lib.transmitter.TransmissionType;
+import mekanism.common.lib.transmitter.TransmitterNetworkRegistry;
 import mekanism.common.lib.transmitter.acceptor.AcceptorCache;
 import mekanism.common.tier.IStorageTier;
 import mekanism.common.tile.transmitter.TileEntityTransmitter;
@@ -261,7 +262,9 @@ public abstract class BufferedResourceTransmitter<RESOURCE extends Resource, CON
         protected final void onRootCommit(LargeResourceStack<RESOURCE> originalState) {
             super.onRootCommit(originalState);
             if (!this.saveShare.equals(originalState)) {
-                getTransmitterTile().markForSave();
+                //Note: This commit often runs while another transmitter of the network is being saved (from inside vanilla's chunk saving),
+                // so mark our chunk at the end of the tick instead of now
+                TransmitterNetworkRegistry.markForSaveAtEndOfTick(getTransmitterTile());
             }
         }
     }

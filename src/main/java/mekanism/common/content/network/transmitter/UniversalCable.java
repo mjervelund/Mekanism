@@ -13,6 +13,7 @@ import mekanism.common.capabilities.energy.BasicEnergyContainer;
 import mekanism.common.content.network.EnergyNetwork;
 import mekanism.common.lib.transmitter.ConnectionType;
 import mekanism.common.lib.transmitter.TransmissionType;
+import mekanism.common.lib.transmitter.TransmitterNetworkRegistry;
 import mekanism.common.lib.transmitter.acceptor.AcceptorCache;
 import mekanism.common.tier.CableTier;
 import mekanism.common.tile.transmitter.TileEntityTransmitter;
@@ -236,7 +237,9 @@ public class UniversalCable extends BufferedTransmitter<EnergyHandler, EnergyNet
         protected final void onRootCommit(Long originalState) {
             super.onRootCommit(originalState);
             if (this.saveShare != originalState) {
-                getTransmitterTile().markForSave();
+                //Note: This commit often runs while another transmitter of the network is being saved (from inside vanilla's chunk saving),
+                // so mark our chunk at the end of the tick instead of now
+                TransmitterNetworkRegistry.markForSaveAtEndOfTick(getTransmitterTile());
             }
         }
     }
