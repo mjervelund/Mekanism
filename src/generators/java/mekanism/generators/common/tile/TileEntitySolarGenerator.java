@@ -46,6 +46,10 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
     /// This panel's tick offset within the sun check and emit intervals, or -1 before it is computed.
     private int phase = -1;
     private int lastProductionAmount = 0;
+    /// Game time of the last tick this panel processed (see [#skipServerTick]), or [Long#MIN_VALUE] before the first.
+    private long lastProcessedTick = Long.MIN_VALUE;
+    /// Game ticks the current processed tick stands for.
+    private int tickSpan = 1;
     @UnknownNullability//Initialized via getInitialInventory
     @WrappingComputerMethod(wrapper = ComputerIInventorySlotWrapper.class, methodNames = "getEnergyItem", docPlaceholder = "energy item slot")
     EnergyInventorySlot energySlot;
@@ -73,6 +77,27 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
     }
 
     @Override
+    protected boolean skipServerTick(ServerLevel level) {
+        //A panel only needs to act on its emit tick: it checks the sun once a second and emits every interval anyway. So skip the whole tile
+        // tick in between (also the generic TileEntityMekanism work), and add the skipped ticks' production on the next processed tick.
+        // Not while an item charges from the panel (it charges per tick), and not before the first processed tick.
+        int interval = MekanismGeneratorsConfig.generators.solarEmitInterval.get();
+        long now = level.getGameTime();
+        if (interval > 1 && lastProcessedTick != Long.MIN_VALUE && solarCheck != null && energySlot.isEmpty()
+            && Math.floorMod(now + phase(), interval) != 0 && now - lastProcessedTick < interval) {
+            return true;
+        }
+        tickSpan = lastProcessedTick == Long.MIN_VALUE ? 1 : (int) Math.clamp(now - lastProcessedTick, 1, Math.max(interval, 1));
+        lastProcessedTick = now;
+        return false;
+    }
+
+    @Override
+    protected int serverTickSpan() {
+        return tickSpan;
+    }
+
+    @Override
     protected boolean onUpdateServer(ServerLevel level) {
         boolean firstCheck = solarCheck == null;
         if (firstCheck) {
@@ -80,7 +105,7 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
             //Check the sky on the first tick, then once a second
             refreshSun = true;
         }
-        if (refreshSun || Math.floorMod(level.getGameTime() + phase(), SUN_RECHECK_TICKS) == 0) {
+        if (refreshSun || Math.floorMod(level.getGameTime() + phase(), SUN_RECHECK_TICKS) == 0 || tickSpan >= SUN_RECHECK_TICKS) {
             // Sort out if the generator can see the sun; we no longer check if it's raining here,
             // since under the new rules, we can still generate power when it's raining, albeit at a
             // significant penalty.
@@ -97,6 +122,12 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
             seesSun = checkCanSeeSun();
             production = seesSun ? Math.max(0, getProduction()) : 0;
         }
+        //When this tick stands for several (skipped) ticks, first fill the buffer with their production so it is emitted now: the buffer only
+        // holds about one emit interval of peak production, and biome multipliers can exceed peak
+        long batched = 0;
+        if (tickSpan > 1 && seesSun && canFunction()) {
+            batched = addProduction((long) production * tickSpan);
+        }
         //Note: The generator emits (in super) before adding this tick's production, like before; shouldEmit uses the production computed above
         boolean sendUpdatePacket = super.onUpdateServer(level);
         energySlot.drainContainerIntoSlot(null);
@@ -104,19 +135,29 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
             //Add the production directly instead of inserting in a root transaction: this runs every tick for every panel, and every transaction open
             // costs NeoForge a stack walk. The generator's container is a BasicEnergyContainer without a rate limit that allows internal insertion,
             // so an internal insert would add exactly min(production, needed) and fire the contents listener on commit, which setEnergy does directly.
-            BasicEnergyContainer container = energyContainer();
-            int toAdd = (int) Math.min(production, container.getNeededAsLong());
-            if (toAdd > 0) {
-                container.setEnergy(container.getAmountAsLong() + toAdd, null);
-            }
-            lastProductionAmount = toAdd;
-            if (toAdd > 0) {
+            long added = batched + addProduction((long) production * tickSpan - batched);
+            //Per tick, for the GUI and computers
+            lastProductionAmount = (int) (added / tickSpan);
+            if (added > 0) {
                 producedSinceRefresh = true;
             }
         } else {
             lastProductionAmount = 0;
         }
         return sendUpdatePacket;
+    }
+
+    /// Adds up to `amount` to the buffer (as much as fits) and returns how much was added.
+    private long addProduction(long amount) {
+        if (amount <= 0) {
+            return 0;
+        }
+        BasicEnergyContainer container = energyContainer();
+        long toAdd = Math.min(amount, container.getNeededAsLong());
+        if (toAdd > 0) {
+            container.setEnergy(container.getAmountAsLong() + toAdd, null);
+        }
+        return toAdd;
     }
 
     private int phase() {

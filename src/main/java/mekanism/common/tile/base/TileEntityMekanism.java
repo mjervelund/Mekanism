@@ -601,6 +601,10 @@ public abstract class TileEntityMekanism extends CapabilityTileEntity implements
     }
 
     public static void tickServer(Level level, BlockPos pos, BlockState state, TileEntityMekanism tile) {
+        if (tile.skipServerTick((ServerLevel) level)) {
+            return;
+        }
+        int span = tile.serverTickSpan();
         if (tile.hasBounding && tile.syncMasterToBounding) {
             //TODO: Evaluate checking every x ticks to make sure we have bounding blocks (at least if we haven't already checked) in case we are missing them
             // for example if someone set the main block by using a command
@@ -611,7 +615,7 @@ public abstract class TileEntityMekanism extends CapabilityTileEntity implements
                 hasBounding.syncMasterPosition(level, pos, state);
             }
         }
-        tile.frequencyComponent.tickServer(level, pos);
+        tile.frequencyComponent.tickServer(level, pos, span);
         if (tile.supportsUpgrades()) {
             Objects.requireNonNull(tile.upgradeComponent).tickServer(level.registryAccess(), null);
         }
@@ -620,7 +624,7 @@ public abstract class TileEntityMekanism extends CapabilityTileEntity implements
         }
         if (tile.isActivatable()) {
             if (tile.updateDelay > 0) {
-                tile.updateDelay--;
+                tile.updateDelay = Math.max(0, tile.updateDelay - span);
                 if (tile.updateDelay == 0 && tile.getClientActive() != tile.currentActive) {
                     //If it doesn't match, and we are done with the delay period, then update it
                     level.setBlockAndUpdate(pos, Objects.requireNonNull(tile.activeAttribute).setActive(state, tile.currentActive));
@@ -650,13 +654,26 @@ public abstract class TileEntityMekanism extends CapabilityTileEntity implements
             }
             tile.updateComparators = false;
         }
-        tile.ticker++;
+        tile.ticker += span;
         if (tile.supportsRedstone()) {
             tile.redstoneLastTick = tile.redstone;
         }
         if (sendUpdatePacket) {
             tile.sendUpdatePacket();
         }
+    }
+
+    /// Lets a tile skip whole server ticks when it has nothing to do on them; it then does the skipped ticks' work on its next tick, which
+    /// [#serverTickSpan()] reports. Used by solar generators (tens of thousands on large bases), which only need to act every few ticks.
+    ///
+    /// @return `true` to skip this tick entirely.
+    protected boolean skipServerTick(ServerLevel level) {
+        return false;
+    }
+
+    /// @return how many game ticks the current server tick stands for: 1, unless [#skipServerTick(ServerLevel)] skipped the ticks before it.
+    protected int serverTickSpan() {
+        return 1;
     }
 
     public void open(Player player) {
