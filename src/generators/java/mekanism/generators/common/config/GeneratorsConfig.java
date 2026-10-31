@@ -33,6 +33,7 @@ public class GeneratorsConfig extends BaseMekanismConfig {
     public final CachedLongValue gbgTankCapacity;
 
     public final CachedIntValue solarGeneration;
+    public final CachedIntValue solarEmitInterval;
     public final CachedIntValue turbineBladesPerCoil;
     public final CachedDoubleValue turbineVentChemicalFlow;
     public final CachedDoubleValue turbineDisperserChemicalFlow;
@@ -89,6 +90,8 @@ public class GeneratorsConfig extends BaseMekanismConfig {
               .defineInRange("solarGeneration", 2, 0, Integer.MAX_VALUE));
         advancedSolarGeneration = CachedIntValue.wrap(this, GeneratorsConfigTranslations.SERVER_SOLAR_GENERATION_ADVANCED.applyToBuilder(builder)
               .defineInRange("advancedSolarGeneration", 12, 0, Integer.MAX_VALUE));
+        solarEmitInterval = CachedIntValue.wrap(this, GeneratorsConfigTranslations.SERVER_SOLAR_EMIT_INTERVAL.applyToBuilder(builder)
+              .defineInRange("emitInterval", 20, 1, 1_200));
         builder.pop();
 
         GeneratorsConfigTranslations.SERVER_GENERATOR_BIO.applyToBuilder(builder).push("bio_generator");
