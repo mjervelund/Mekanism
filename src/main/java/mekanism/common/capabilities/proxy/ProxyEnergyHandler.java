@@ -34,6 +34,18 @@ public class ProxyEnergyHandler extends ProxyHandler<ISingleContainerHolder<IEne
         return container == null ? 0 : container.getCapacityAsLong();
     }
 
+    /// {@return `true` if [#insert(int, TransactionContext)] would currently insert nothing, whatever the amount}
+    ///
+    /// This lets callers that offer energy to many handlers every tick (like energy networks) skip handlers that never accept energy from this side, such
+    /// as generators, without opening a transaction for them.
+    public boolean cannotInsert() {
+        if (readOnlyInsert()) {
+            return true;
+        }
+        IEnergyContainer container = getContainer();
+        return container == null || !container.isValidForInsertion(AutomationType.handler(side));
+    }
+
     @Override
     @Range(from = 0, to = Integer.MAX_VALUE)
     public int insert(@Range(from = 0, to = Integer.MAX_VALUE) int amount, TransactionContext transaction) {

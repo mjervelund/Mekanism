@@ -10,6 +10,7 @@ import mekanism.api.math.MathUtils;
 import mekanism.common.MekanismLang;
 import mekanism.common.component.containers.type.ContainerType;
 import mekanism.common.capabilities.energy.VariableCapacityEnergyContainer;
+import mekanism.common.capabilities.proxy.ProxyEnergyHandler;
 import mekanism.common.content.network.distribution.EnergyTransmitterSaveTarget;
 import mekanism.common.content.network.transmitter.UniversalCable;
 import mekanism.common.lib.transmitter.DynamicBufferedNetwork;
@@ -116,6 +117,11 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
         List<EnergyHandler> targets = null;
         for (Map<Direction, EnergyHandler> acceptors : acceptorCache.getAcceptorValues()) {
             for (EnergyHandler acceptor : acceptors.values()) {
+                if (acceptor instanceof ProxyEnergyHandler proxy && proxy.cannotInsert()) {
+                    //Skip handlers that never accept energy from this side (for example generators): they would take nothing,
+                    // but each would still cost a transaction (and a stack walk in NeoForge) per network per tick
+                    continue;
+                }
                 if (targets == null) {
                     //Lazily initialize the list of targets, which allows us to also skip attempting to start emitting
                     targets = new ArrayList<>();
