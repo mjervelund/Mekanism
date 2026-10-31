@@ -71,7 +71,13 @@ public class TileComponentFrequency implements ITileComponent {
     }
 
     public void tickServer(Level level, BlockPos pos) {
-        if (level.getGameTime() % 5 == tickOffset) {
+        tickServer(level, pos, 1);
+    }
+
+    /// @param span Number of game ticks this tick stands for (more than one when the tile skips ticks, see TileEntityMekanism#skipServerTick).
+    public void tickServer(Level level, BlockPos pos, int span) {
+        //A tile that only ticks every few ticks may never tick on our offset, so update on each of its ticks that covers 5+ ticks
+        if (span >= 5 || level.getGameTime() % 5 == tickOffset) {
             if (securityFrequency != null) {
                 updateFrequency(FrequencyTypes.SECURITY, securityFrequency, level);
             }
