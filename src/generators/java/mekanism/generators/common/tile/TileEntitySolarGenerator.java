@@ -39,6 +39,8 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
     /// Production per tick from the last sun check.
     private int production;
     private boolean refreshSun;
+    /// Whether the panel produced anything since the last sun check; decides the active state at the next check.
+    private boolean producedSinceRefresh;
     /// Whether the last emit sent anything.
     private boolean lastEmitSent = true;
     /// This panel's tick offset within the sun check and emit intervals, or -1 before it is computed.
@@ -72,7 +74,8 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
 
     @Override
     protected boolean onUpdateServer(ServerLevel level) {
-        if (solarCheck == null) {
+        boolean firstCheck = solarCheck == null;
+        if (firstCheck) {
             recheckSettings();
             //Check the sky on the first tick, then once a second
             refreshSun = true;
@@ -84,6 +87,13 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
             //Note: Sky visibility and brightness change slowly (blocks above, time of day, weather), so this runs once a second per panel
             // (each panel on its own tick) instead of every tick, and the production is reused in between.
             refreshSun = false;
+            //Update the active state once a second too, from whether we produced anything since the last check: a panel whose buffer is full
+            // while it waits for its emit tick adds nothing on those ticks, and setting the state per tick would flip it on and off every interval
+            // (Not on the first check after loading: nothing was produced yet, and the loaded state is kept until the next check)
+            if (!firstCheck) {
+                setActive(producedSinceRefresh);
+            }
+            producedSinceRefresh = false;
             seesSun = checkCanSeeSun();
             production = seesSun ? Math.max(0, getProduction()) : 0;
         }
@@ -100,10 +110,12 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
                 container.setEnergy(container.getAmountAsLong() + toAdd, null);
             }
             lastProductionAmount = toAdd;
+            if (toAdd > 0) {
+                producedSinceRefresh = true;
+            }
         } else {
             lastProductionAmount = 0;
         }
-        setActive(lastProductionAmount > 0);
         return sendUpdatePacket;
     }
 
