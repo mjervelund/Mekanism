@@ -1,11 +1,11 @@
 package mekanism.generators.common.tile;
 
 import java.util.Set;
-import mekanism.api.AutomationType;
 import mekanism.api.IContentsListener;
 import mekanism.api.RelativeSide;
 import mekanism.api.inventory.IInventorySlot;
 import mekanism.api.math.MathUtils;
+import mekanism.common.capabilities.energy.BasicEnergyContainer;
 import mekanism.common.capabilities.holder.container.IContainerHolder;
 import mekanism.common.capabilities.holder.container.MekContainerHelper;
 import mekanism.common.integration.computer.SpecialComputerMethodWrapper.ComputerIInventorySlotWrapper;
@@ -26,7 +26,6 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biome.Precipitation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.transfer.transaction.Transaction;
 import org.jetbrains.annotations.UnknownNullability;
 import org.jspecify.annotations.Nullable;
 
@@ -73,10 +72,15 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
         // significant penalty.
         seesSun = checkCanSeeSun();
         if (seesSun && canFunction()) {
-            try (Transaction transaction = Transaction.openRoot()) {
-                lastProductionAmount = energyContainer().insert(getProduction(), transaction, AutomationType.INTERNAL);
-                transaction.commit();
+            //Add the production directly instead of inserting in a root transaction: this runs every tick for every panel, and every transaction open
+            // costs NeoForge a stack walk. The generator's container is a BasicEnergyContainer without a rate limit that allows internal insertion,
+            // so an internal insert would add exactly min(production, needed) and fire the contents listener on commit, which setEnergy does directly.
+            BasicEnergyContainer container = energyContainer();
+            int toAdd = (int) Math.min(getProduction(), container.getNeededAsLong());
+            if (toAdd > 0) {
+                container.setEnergy(container.getAmountAsLong() + toAdd, null);
             }
+            lastProductionAmount = toAdd;
         } else {
             lastProductionAmount = 0;
         }

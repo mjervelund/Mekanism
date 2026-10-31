@@ -63,22 +63,60 @@ public final class EnergyUtils {
     @Range(from = 0, to = Integer.MAX_VALUE)
     public static int emit(Collection<BlockCapabilityCache<EnergyHandler, @Nullable Direction>> targets, IEnergyContainer container,
           @Range(from = 0, to = Integer.MAX_VALUE) int maxOutput, @Nullable TransactionContext transaction) {
-        if (!container.isEmpty() && maxOutput > 0) {
-            int energyToSend;
-            try (Transaction simulation = Transaction.open(transaction)) {
-                energyToSend = container.extract(maxOutput, simulation, AutomationType.INTERNAL);
-                if (energyToSend == 0) {
-                    //If we failed to extract from it, just exit early
-                    return 0;
-                }
+        if (container.isEmpty() || maxOutput == 0 || targets.isEmpty()) {
+            return 0;
+        }
+        //Resolve the handlers before opening any transaction, so that a container with no connected acceptors does not open one at all.
+        // Opening a transaction is not free: NeoForge looks up the caller class with a stack walk on every open.
+        return emit(EmitUtils.getHandlersFromCaches(targets), container, maxOutput, transaction);
+    }
+
+    /// Emits energy from the given container at the specified maximum transfer rate split among the given handlers.
+    ///
+    /// @param handlers    Handlers to output to.
+    /// @param container   Container to transfer energy out of.
+    /// @param maxOutput   Maximum transfer rate to transfer out of the container.
+    /// @param transaction The transaction that this operation is part of. `null` can be passed to conveniently have this method open its own root transaction and
+    /// perform the sending.
+    ///
+    /// @return the amount of energy transferred out of the container and emitted among the given handlers.
+    @Range(from = 0, to = Integer.MAX_VALUE)
+    public static int emit(List<EnergyHandler> handlers, IEnergyContainer container, @Range(from = 0, to = Integer.MAX_VALUE) int maxOutput,
+          @Nullable TransactionContext transaction) {
+        if (handlers.isEmpty() || container.isEmpty() || maxOutput == 0) {
+            return 0;
+        }
+        //Fast path: extract what we can send, and offer it in the same transaction. If the targets take all of it, or none of it, this is equivalent to
+        // simulating the extraction first, sending, and then extracting the amount that was sent, but it only opens one transaction instead of two.
+        try (Transaction subTransaction = Transaction.open(transaction)) {
+            int energyToSend = container.extract(maxOutput, subTransaction, AutomationType.INTERNAL);
+            if (energyToSend == 0) {
+                //If we failed to extract from it, just exit early
+                return 0;
             }
-            try (Transaction subTransaction = Transaction.open(transaction)) {
-                int sent = Ints.saturatedCast(emit(targets, energyToSend, subTransaction));
-                if (sent > 0 && container.extract(sent, subTransaction, AutomationType.INTERNAL) == sent) {
-                    //Validate that we were able to extract the amount we sent. In theory this should always be true
-                    subTransaction.commit();
-                    return sent;
-                }
+            long sent = emit(handlers, energyToSend, subTransaction);
+            if (sent == energyToSend) {
+                subTransaction.commit();
+                return energyToSend;
+            } else if (sent == 0) {
+                return 0;
+            }
+            //Otherwise, the targets only took part of it: abort and send again the slow way below, so that only the amount the targets accept is extracted
+        }
+        int energyToSend;
+        try (Transaction simulation = Transaction.open(transaction)) {
+            energyToSend = container.extract(maxOutput, simulation, AutomationType.INTERNAL);
+            if (energyToSend == 0) {
+                //If we failed to extract from it, just exit early
+                return 0;
+            }
+        }
+        try (Transaction subTransaction = Transaction.open(transaction)) {
+            int sent = Ints.saturatedCast(emit(handlers, energyToSend, subTransaction));
+            if (sent > 0 && container.extract(sent, subTransaction, AutomationType.INTERNAL) == sent) {
+                //Validate that we were able to extract the amount we sent. In theory this should always be true
+                subTransaction.commit();
+                return sent;
             }
         }
         return 0;
@@ -116,6 +154,10 @@ public final class EnergyUtils {
             return 0;
         } else if (targets.size() == 1) {
             //If we only have a single target, optimize out wrapping it in a resource handler target
+            if (transaction != null) {
+                //A nested transaction that is always committed is the same as inserting in the parent transaction, so skip opening one
+                return targets.getFirst().insert(Ints.saturatedCast(energyToSend), transaction);
+            }
             try (Transaction subTransaction = Transaction.open(transaction)) {
                 int sent = targets.getFirst().insert(Ints.saturatedCast(energyToSend), subTransaction);
                 subTransaction.commit();
