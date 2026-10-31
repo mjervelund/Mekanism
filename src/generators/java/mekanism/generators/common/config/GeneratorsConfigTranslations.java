@@ -15,6 +15,9 @@ public enum GeneratorsConfigTranslations implements IConfigTranslation {
           "Peak energy generation in FE/t for the Solar Generator. Note: It can go higher than this value in some extreme environments."),
     SERVER_SOLAR_GENERATION_ADVANCED("server.generator.solar.gen.advanced", "Advanced Solar Energy Generation",
           "Peak energy generation in FE/t for the Advanced Solar Generator. Note: It can go higher than this value in some extreme environments."),
+    SERVER_SOLAR_EMIT_INTERVAL("server.generator.solar.emit_interval", "Emit Interval",
+          "Solar Generators and Advanced Solar Generators send their stored energy to neighbours once every this many ticks (each on its own tick), "
+          + "or sooner when their buffer is full. 1 sends every tick. Higher values are cheaper for servers with many solar generators."),
 
     SERVER_GENERATOR_BIO("server.generator.bio", "Bio Generator", "Settings for configuring Bio Generators", true),
     SERVER_GENERATOR_BIO_GENERATION("server.generator.bio.gen", "Energy Generation", "Energy produced by the Bio Generator in FE/t."),

@@ -52,7 +52,7 @@ public abstract class TileEntityGenerator extends TileEntityMekanism {
     @Override
     protected boolean onUpdateServer(ServerLevel level) {
         boolean sendUpdatePacket = super.onUpdateServer(level);
-        if (canFunction()) {
+        if (canFunction() && shouldEmit(level)) {
             //TODO: Maybe even make some generators have a side config/ejector component and move this to the ejector component?
             if (outputCaches == null) {
                 Direction direction = getDirection();
@@ -63,9 +63,18 @@ public abstract class TileEntityGenerator extends TileEntityMekanism {
                     outputCaches.add(Capabilities.ENERGY.createCache(level, worldPosition.relative(side), side.getOpposite()));
                 }
             }
-            EnergyUtils.emit(outputCaches, energyContainer, null);
+            onEmitted(EnergyUtils.emit(outputCaches, energyContainer, null));
         }
         return sendUpdatePacket;
+    }
+
+    /// Whether this generator should try to emit its stored energy this tick. Generators that produce a little energy every tick can emit in batches.
+    protected boolean shouldEmit(ServerLevel level) {
+        return true;
+    }
+
+    /// Called after this generator tried to emit, with the amount that was sent.
+    protected void onEmitted(int sent) {
     }
 
     @Override
