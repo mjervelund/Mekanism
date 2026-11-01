@@ -1,5 +1,10 @@
 package mekanism.generators.common;
 
+import mekanism.generators.common.tile.SolarTickScheduler;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.level.LevelEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import java.util.Objects;
 import mekanism.api.MekanismAPI;
 import mekanism.common.Mekanism;
@@ -64,6 +69,9 @@ public class MekanismGenerators implements IModModule {
         GeneratorsModules.MODULES.register(modEventBus);
         MekanismGeneratorsMultiblocks.register(modEventBus);
         packetHandler = new GeneratorsPacketHandler(modEventBus, versionNumber);
+        NeoForge.EVENT_BUS.addListener(LevelTickEvent.Post.class, SolarTickScheduler::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(LevelEvent.Unload.class, SolarTickScheduler::onLevelUnload);
+        NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, event -> SolarTickScheduler.onServerStopped());
     }
 
     public static GeneratorsPacketHandler packetHandler() {
