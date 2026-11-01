@@ -98,6 +98,20 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
     }
 
     @Override
+    public void onLoad() {
+        super.onLoad();
+        //Solar generators have no vanilla server ticker: the scheduler ticks them on their phase tick, see SolarTickScheduler
+        if (level instanceof ServerLevel serverLevel) {
+            SolarTickScheduler.add(serverLevel, this);
+        }
+    }
+
+    /// Whether this panel must tick every tick: while an item charges from its slot.
+    boolean needsEveryTick() {
+        return !energySlot.isEmpty();
+    }
+
+    @Override
     protected boolean onUpdateServer(ServerLevel level) {
         boolean firstCheck = solarCheck == null;
         if (firstCheck) {
@@ -160,7 +174,7 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
         return toAdd;
     }
 
-    private int phase() {
+    int phase() {
         if (phase == -1) {
             //Spread panels over the ticks of the interval, so that they do not all check and emit on the same tick
             phase = (int) (HashCommon.mix(worldPosition.asLong()) >>> 33);

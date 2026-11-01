@@ -41,7 +41,7 @@ public class GeneratorsTileEntityTypes {
     public static final TileEntityTypeRegistryObject<TileEntityAdvancedSolarGenerator> ADVANCED_SOLAR_GENERATOR = TILE_ENTITY_TYPES
           .mekBuilder(GeneratorsBlocks.ADVANCED_SOLAR_GENERATOR, TileEntityAdvancedSolarGenerator::new)
           .clientTicker(TileEntityMekanism::tickClient)
-          .serverTicker(TileEntityMekanism::tickServer)
+          //No server ticker: SolarTickScheduler ticks solar generators
           .withSimple(Capabilities.CONFIG_CARD)
           .withSimple(Capabilities.EVAPORATION_SOLAR)
           .build();
@@ -62,7 +62,7 @@ public class GeneratorsTileEntityTypes {
           .build();
     public static final TileEntityTypeRegistryObject<TileEntitySolarGenerator> SOLAR_GENERATOR = TILE_ENTITY_TYPES.mekBuilder(GeneratorsBlocks.SOLAR_GENERATOR, TileEntitySolarGenerator::new)
           .clientTicker(TileEntityMekanism::tickClient)
-          .serverTicker(TileEntityMekanism::tickServer)
+          //No server ticker: SolarTickScheduler ticks solar generators
           .withSimple(Capabilities.CONFIG_CARD)
           .build();
     public static final TileEntityTypeRegistryObject<TileEntityWindGenerator> WIND_GENERATOR = TILE_ENTITY_TYPES.mekBuilder(GeneratorsBlocks.WIND_GENERATOR, TileEntityWindGenerator::new)
