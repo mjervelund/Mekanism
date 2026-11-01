@@ -160,6 +160,9 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     /// network per tick whenever one of its transmitters is saved, so it is on the chunk-save path).
     ///
     /// @return `false` if this network has no direct implementation, then the transactional one is used.
+    /// A/B switch for verify builds only (/tekkitperf ab).
+    public static boolean SAVE_SHARES_DIRECT = true;
+
     protected boolean updateSaveSharesDirect(@Nullable TRANSMITTER triggerTransmitter) {
         return false;
     }
@@ -172,7 +175,7 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
         }
         if (world != null && world.getGameTime() != lastSaveShareWriteTime) {
             lastSaveShareWriteTime = world.getGameTime();
-            if (transaction == null && updateSaveSharesDirect(triggerTransmitter)) {
+            if (transaction == null && SAVE_SHARES_DIRECT && updateSaveSharesDirect(triggerTransmitter)) {
                 //Nothing outer can roll the shares back, so they were computed without a transaction
                 return;
             }
