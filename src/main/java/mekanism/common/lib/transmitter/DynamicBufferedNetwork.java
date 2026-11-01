@@ -156,6 +156,14 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     protected void updateSaveShares(@Nullable TRANSMITTER triggerTransmitter, TransactionContext transaction) {
     }
 
+    /// Same result as [#updateSaveShares] in a committed root transaction, for networks that can compute it directly (this runs once per
+    /// network per tick whenever one of its transmitters is saved, so it is on the chunk-save path).
+    ///
+    /// @return `false` if this network has no direct implementation, then the transactional one is used.
+    protected boolean updateSaveSharesDirect(@Nullable TRANSMITTER triggerTransmitter) {
+        return false;
+    }
+
     public final void validateSaveShares(TRANSMITTER triggerTransmitter, @Nullable TransactionContext transaction) {
         if (world == null) {
             //If the world is null, try falling back to the trigger transmitter's world.
@@ -164,6 +172,10 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
         }
         if (world != null && world.getGameTime() != lastSaveShareWriteTime) {
             lastSaveShareWriteTime = world.getGameTime();
+            if (transaction == null && updateSaveSharesDirect(triggerTransmitter)) {
+                //Nothing outer can roll the shares back, so they were computed without a transaction
+                return;
+            }
             try (Transaction subTransaction = Transaction.open(transaction)) {
                 updateSaveShares(triggerTransmitter, subTransaction);
                 subTransaction.commit();

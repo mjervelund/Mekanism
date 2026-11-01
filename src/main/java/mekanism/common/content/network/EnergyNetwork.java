@@ -13,6 +13,7 @@ import mekanism.common.capabilities.energy.VariableCapacityEnergyContainer;
 import mekanism.common.capabilities.proxy.ProxyEnergyHandler;
 import mekanism.common.content.network.distribution.EnergyTransmitterSaveTarget;
 import mekanism.common.content.network.transmitter.UniversalCable;
+import mekanism.common.lib.distribution.CapacitySplit;
 import mekanism.common.lib.transmitter.DynamicBufferedNetwork;
 import mekanism.common.util.EmitUtils;
 import mekanism.common.util.EnergyUtils;
@@ -98,6 +99,24 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
             }
             EmitUtils.sendToAcceptors(saveTarget, energyContainer.getAmountAsLong(), ENERGY, transaction);
         }
+    }
+
+    @Override
+    protected boolean updateSaveSharesDirect(@Nullable UniversalCable triggerTransmitter) {
+        if (!isEmpty()) {
+            Collection<UniversalCable> transmitters = getTransmitters();
+            long[] capacities = new long[transmitters.size()];
+            int i = 0;
+            for (UniversalCable transmitter : transmitters) {
+                capacities[i++] = transmitter.getCapacity();
+            }
+            long[] shares = CapacitySplit.split(capacities, energyContainer.getAmountAsLong());
+            i = 0;
+            for (UniversalCable transmitter : transmitters) {
+                transmitter.setSaveShare(shares[i++]);
+            }
+        }
+        return true;
     }
 
     protected void tickEmit() {

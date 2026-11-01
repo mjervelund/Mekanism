@@ -154,6 +154,11 @@ public class UniversalCable extends BufferedTransmitter<EnergyHandler, EnergyNet
         return buffer.getAmountAsLong();
     }
 
+    /// Sets the save share outside a transaction (see [EnergyNetwork#updateSaveSharesDirect]); marks the cable for saving like a committed change does.
+    public void setSaveShare(long share) {
+        saveShareJournal.setDirect(share);
+    }
+
     public SaveShareJournal startNewSaveShare(TransactionContext transaction) {
         saveShareJournal.markForNewSave(transaction);
         return saveShareJournal;
@@ -205,6 +210,12 @@ public class UniversalCable extends BufferedTransmitter<EnergyHandler, EnergyNet
 
         private long saveShare = 0;
 
+        private void setDirect(long share) {
+            long original = saveShare;
+            saveShare = share;
+            onShareChanged(original);
+        }
+
         private void markForNewSave(TransactionContext transaction) {
             updateSnapshots(transaction);
             saveShare = 0;
@@ -236,6 +247,10 @@ public class UniversalCable extends BufferedTransmitter<EnergyHandler, EnergyNet
         @Override
         protected final void onRootCommit(Long originalState) {
             super.onRootCommit(originalState);
+            onShareChanged(originalState);
+        }
+
+        private void onShareChanged(long originalState) {
             if (this.saveShare != originalState) {
                 //Note: This commit often runs while another transmitter of the network is being saved (from inside vanilla's chunk saving),
                 // so mark our chunk at the end of the tick instead of now
