@@ -2,6 +2,7 @@ package mekanism.common.tests.network;
 
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -15,11 +16,13 @@ import mekanism.common.tile.transmitter.TileEntityUniversalCable;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
@@ -29,6 +32,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.network.registration.ChannelAttributes;
 import net.neoforged.testframework.DynamicTest;
 import net.neoforged.testframework.annotation.ForEachTest;
 import net.neoforged.testframework.annotation.RegisterStructureTemplate;
@@ -124,6 +128,10 @@ public class NetworkReformTest {
         };
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
         EmbeddedChannel channel = new EmbeddedChannel(connection);
+        //The probe has not negotiated payload channels with the server like a client would: declare the ones this test receives
+        Set<Identifier> channels = ChannelAttributes.getOrCreateCommonChannels(connection, ConnectionProtocol.PLAY);
+        channels.add(PacketUpdateTile.TYPE.id());
+        channels.add(Mekanism.rl("transmitter_updates"));
         level.getServer().getPlayerList().placeNewPlayer(connection, player, cookie);
         BlockPos center = helper.absolutePos(BREAK);
         player.teleportTo(center.getX() + 0.5, center.getY() + 3, center.getZ() + 0.5);
