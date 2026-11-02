@@ -33,6 +33,8 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
 
     public final VariableCapacityEnergyContainer energyContainer;
     private long prevTransferAmount = 0L;
+    private final List<EnergyHandler> emitCandidates = new ArrayList<>();
+    private int emitCandidatesVersion = -1;
 
     public EnergyNetwork(UUID networkID) {
         super(networkID);
@@ -115,23 +117,39 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
 
     private long tickEmit(long amountToSend, TransactionContext transaction) {
         List<EnergyHandler> targets = null;
-        for (Map<Direction, EnergyHandler> acceptors : acceptorCache.getAcceptorValues()) {
-            for (EnergyHandler acceptor : acceptors.values()) {
-                if (acceptor instanceof ProxyEnergyHandler proxy && proxy.cannotInsert()) {
-                    //Skip handlers that never accept energy from this side (for example generators): they would take nothing,
-                    // but each would still cost a transaction (and a stack walk in NeoForge) per network per tick
-                    continue;
-                }
-                if (targets == null) {
-                    //Lazily initialize the list of targets, which allows us to also skip attempting to start emitting
-                    targets = new ArrayList<>();
-                }
-                //Note: We add the target regardless of if we can insert into it, as it skips the extra check,
-                // and sendToAcceptors needs to calculate if the target can accept anyway
-                targets.add(acceptor);
+        for (EnergyHandler acceptor : getEmitCandidates()) {
+            if (acceptor instanceof ProxyEnergyHandler proxy && proxy.cannotInsert()) {
+                //Skip handlers that currently accept no energy from this side: they would take nothing,
+                // but each would still cost a transaction (and a stack walk in NeoForge) per network per tick
+                continue;
             }
+            if (targets == null) {
+                //Lazily initialize the list of targets, which allows us to also skip attempting to start emitting
+                targets = new ArrayList<>();
+            }
+            //Note: We add the target regardless of if we can insert into it, as it skips the extra check,
+            // and sendToAcceptors needs to calculate if the target can accept anyway
+            targets.add(acceptor);
         }
         return targets == null ? 0 : EnergyUtils.emit(targets, amountToSend, transaction);
+    }
+
+    /// The acceptors this network may emit to, in acceptor cache order, without the handlers that never accept energy (generators). Rebuilt when the
+    /// acceptors change, so the generators next to the cables are not visited every tick.
+    private List<EnergyHandler> getEmitCandidates() {
+        int version = acceptorCache.getVersion();
+        if (emitCandidatesVersion != version) {
+            emitCandidates.clear();
+            for (Map<Direction, EnergyHandler> acceptors : acceptorCache.getAcceptorValues()) {
+                for (EnergyHandler acceptor : acceptors.values()) {
+                    if (!(acceptor instanceof ProxyEnergyHandler proxy && proxy.neverInserts())) {
+                        emitCandidates.add(acceptor);
+                    }
+                }
+            }
+            emitCandidatesVersion = version;
+        }
+        return emitCandidates;
     }
 
     @Override
