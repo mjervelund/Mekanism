@@ -153,6 +153,7 @@ public class TransmitterNetworkRegistry {
 
     @SubscribeEvent
     public static void onTick(ServerTickEvent.Post event) {
+        mekanism.common.tile.transmitter.TileEntityTransmitter.verifySwitchTick();
         markTransmittersForSave();
         handleChangedChunks();
         removeInvalidTransmitters();

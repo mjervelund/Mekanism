@@ -129,12 +129,31 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
 
     /// Takes this transmitter off its chunk's block entity ticker list while it has nothing to do, so tens of thousands of idle cables do not each cost
     /// a ticker entry and a call every tick. [#wakeTicker()] puts it back as soon as one of the conditions of [#needsTicking()] becomes true.
+    /// A/B switch for verify builds only (/tekkitperf ab mekanism.common.tile.transmitter.TileEntityTransmitter IDLE_UNTICK true|false).
+    public static boolean IDLE_UNTICK = true;
+    private static boolean lastIdleUntick = true;
+    private static final java.util.Set<TileEntityTransmitter> SLEEPERS = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+    /// Verify builds only: called every server tick; when the switch goes off, wakes every sleeping transmitter.
+    public static void verifySwitchTick() {
+        if (lastIdleUntick != IDLE_UNTICK) {
+            lastIdleUntick = IDLE_UNTICK;
+            if (!IDLE_UNTICK) {
+                for (TileEntityTransmitter tile : new java.util.ArrayList<>(SLEEPERS)) {
+                    tile.wakeTicker();
+                }
+                SLEEPERS.clear();
+            }
+        }
+    }
+
     private void sleepIfIdle(ServerLevel level) {
-        if (!needsTicking() && !isRemoved()) {
+        if (IDLE_UNTICK && !needsTicking() && !isRemoved()) {
             LevelChunk chunk = level.getChunkSource().getChunkNow(SectionPos.blockToSectionCoord(worldPosition.getX()), SectionPos.blockToSectionCoord(worldPosition.getZ()));
             if (chunk != null && chunk.getBlockEntity(worldPosition, LevelChunk.EntityCreationType.CHECK) == this) {
                 chunk.removeBlockEntityTicker(worldPosition);
                 tickerRemoved = true;
+                SLEEPERS.add(this);
             }
         }
     }
