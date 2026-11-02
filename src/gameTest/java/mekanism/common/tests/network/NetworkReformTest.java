@@ -2,6 +2,9 @@ package mekanism.common.tests.network;
 
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -128,10 +131,15 @@ public class NetworkReformTest {
         };
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
         EmbeddedChannel channel = new EmbeddedChannel(connection);
-        //The probe has not negotiated payload channels with the server like a client would: declare the ones this test receives
-        Set<Identifier> channels = ChannelAttributes.getOrCreateCommonChannels(connection, ConnectionProtocol.PLAY);
-        channels.add(PacketUpdateTile.TYPE.id());
-        channels.add(Mekanism.rl("transmitter_updates"));
+        //The probe has not negotiated payload channels with the server like a client would: let it accept every payload
+        Map<ConnectionProtocol, Set<Identifier>> channels = new EnumMap<>(ConnectionProtocol.class);
+        channels.put(ConnectionProtocol.PLAY, new HashSet<>() {
+            @Override
+            public boolean contains(Object o) {
+                return true;
+            }
+        });
+        connection.channel().attr(ChannelAttributes.COMMON_CHANNELS).set(channels);
         level.getServer().getPlayerList().placeNewPlayer(connection, player, cookie);
         BlockPos center = helper.absolutePos(BREAK);
         player.teleportTo(center.getX() + 0.5, center.getY() + 3, center.getZ() + 0.5);
