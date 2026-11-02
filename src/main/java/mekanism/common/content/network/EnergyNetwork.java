@@ -136,6 +136,7 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
 
     /// A/B switch for verify builds only (/tekkitperf ab mekanism.common.content.network.EnergyNetwork EMIT_CANDIDATES true|false).
     public static boolean EMIT_CANDIDATES = true;
+    private static long DEBUG_REBUILDS, DEBUG_REBUILT_HANDLERS, debugLastLog = System.nanoTime();
 
     private long tickEmit(long amountToSend, TransactionContext transaction) {
         if (!EMIT_CANDIDATES) {
@@ -180,6 +181,16 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
     private List<EnergyHandler> getEmitCandidates() {
         int version = acceptorCache.getVersion();
         if (emitCandidatesVersion != version) {
+            DEBUG_REBUILDS++;
+            DEBUG_REBUILT_HANDLERS += emitCandidates.size();
+            long now = System.nanoTime();
+            if (now - debugLastLog > 60_000_000_000L) {
+                mekanism.common.Mekanism.logger.info("emit-candidates verify: {} rebuilds, {} handlers in the rebuilt lists over the last {} s",
+                      DEBUG_REBUILDS, DEBUG_REBUILT_HANDLERS, (now - debugLastLog) / 1_000_000_000L);
+                DEBUG_REBUILDS = 0;
+                DEBUG_REBUILT_HANDLERS = 0;
+                debugLastLog = now;
+            }
             emitCandidates.clear();
             for (Map<Direction, EnergyHandler> acceptors : acceptorCache.getAcceptorValues()) {
                 for (EnergyHandler acceptor : acceptors.values()) {
