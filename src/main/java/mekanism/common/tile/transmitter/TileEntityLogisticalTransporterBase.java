@@ -44,8 +44,11 @@ public abstract class TileEntityLogisticalTransporterBase extends TileEntityTran
     protected boolean needsTicking() {
         //Transporters move their items in transit in their own tick, and pull on their own delay; an empty transporter without a pull side has
         // nothing to do until an item is added (LogisticalTransporterBase#addStack wakes it)
-        return super.needsTicking() || getTransmitter().hasTransit();
+        return TRANSPORTER_KEEP_TICKING || super.needsTicking() || getTransmitter().hasTransit();
     }
+
+    //Boot-vs-boot: -Dmekverify.noTransporterUntick=true keeps every transporter ticking (verify build only)
+    public static final boolean TRANSPORTER_KEEP_TICKING = Boolean.getBoolean("mekverify.noTransporterUntick");
 
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
