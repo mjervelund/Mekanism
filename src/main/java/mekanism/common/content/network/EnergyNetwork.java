@@ -134,7 +134,13 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
         }
     }
 
+    /// A/B switch for verify builds only (/tekkitperf ab mekanism.common.content.network.EnergyNetwork EMIT_CANDIDATES true|false).
+    public static boolean EMIT_CANDIDATES = true;
+
     private long tickEmit(long amountToSend, TransactionContext transaction) {
+        if (!EMIT_CANDIDATES) {
+            return tickEmitOld(amountToSend, transaction);
+        }
         List<EnergyHandler> targets = null;
         for (EnergyHandler acceptor : getEmitCandidates()) {
             if (acceptor instanceof ProxyEnergyHandler proxy && proxy.cannotInsert()) {
@@ -149,6 +155,22 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
             //Note: We add the target regardless of if we can insert into it, as it skips the extra check,
             // and sendToAcceptors needs to calculate if the target can accept anyway
             targets.add(acceptor);
+        }
+        return targets == null ? 0 : EnergyUtils.emit(targets, amountToSend, transaction);
+    }
+
+    private long tickEmitOld(long amountToSend, TransactionContext transaction) {
+        List<EnergyHandler> targets = null;
+        for (Map<Direction, EnergyHandler> acceptors : acceptorCache.getAcceptorValues()) {
+            for (EnergyHandler acceptor : acceptors.values()) {
+                if (acceptor instanceof ProxyEnergyHandler proxy && proxy.cannotInsert()) {
+                    continue;
+                }
+                if (targets == null) {
+                    targets = new ArrayList<>();
+                }
+                targets.add(acceptor);
+            }
         }
         return targets == null ? 0 : EnergyUtils.emit(targets, amountToSend, transaction);
     }
