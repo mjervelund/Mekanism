@@ -1,12 +1,19 @@
 package mekanism.common.tests.network;
 
 import com.mojang.authlib.GameProfile;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import mekanism.common.Mekanism;
 import mekanism.common.content.network.EnergyNetwork;
+import mekanism.common.network.to_client.PacketTransmitterUpdates;
 import mekanism.common.network.to_client.PacketUpdateTile;
 import mekanism.common.registries.MekanismBlocks;
 import mekanism.common.tests.MekanismTests;
@@ -15,11 +22,13 @@ import mekanism.common.tile.transmitter.TileEntityUniversalCable;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.BundlePacket;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
@@ -29,6 +38,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.network.registration.ChannelAttributes;
 import net.neoforged.testframework.DynamicTest;
 import net.neoforged.testframework.annotation.ForEachTest;
 import net.neoforged.testframework.annotation.RegisterStructureTemplate;
@@ -110,6 +120,19 @@ public class NetworkReformTest {
 
     /// Positions in a batched transmitter update payload, or -1 if the payload is not one.
     private static int batchedPositions(CustomPacketPayload payload) {
+        if (payload instanceof PacketTransmitterUpdates updates) {
+            //The batch survives the wire format unchanged
+            ByteBuf buffer = Unpooled.buffer();
+            try {
+                PacketTransmitterUpdates.STREAM_CODEC.encode(buffer, updates);
+                if (!updates.equals(PacketTransmitterUpdates.STREAM_CODEC.decode(buffer)) || buffer.isReadable()) {
+                    throw new IllegalStateException("Batched transmitter updates did not round trip");
+                }
+            } finally {
+                buffer.release();
+            }
+            return updates.updates().size();
+        }
         return -1;
     }
 
@@ -124,6 +147,15 @@ public class NetworkReformTest {
         };
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
         EmbeddedChannel channel = new EmbeddedChannel(connection);
+        //The probe has not negotiated payload channels with the server like a client would: let it accept every payload
+        Map<ConnectionProtocol, Set<Identifier>> channels = new EnumMap<>(ConnectionProtocol.class);
+        channels.put(ConnectionProtocol.PLAY, new HashSet<>() {
+            @Override
+            public boolean contains(Object o) {
+                return true;
+            }
+        });
+        connection.channel().attr(ChannelAttributes.COMMON_CHANNELS).set(channels);
         level.getServer().getPlayerList().placeNewPlayer(connection, player, cookie);
         BlockPos center = helper.absolutePos(BREAK);
         player.teleportTo(center.getX() + 0.5, center.getY() + 3, center.getZ() + 0.5);
@@ -179,7 +211,8 @@ public class NetworkReformTest {
               })
               .thenIdle(5)
               .thenExecute(() -> {
-                  report("split", probe[0]);
+                  int[] counts = report("split", probe[0]);
+                  helper.assertTrue(counts[1] > 0 && counts[0] < counts[2] / 10, "updates are batched per chunk");
                   EnergyNetwork a = network(helper, BREAK.west());
                   EnergyNetwork b = network(helper, BREAK.east());
                   helper.assertTrue(a != null && b != null && a != b, "split into two networks");
@@ -188,7 +221,8 @@ public class NetworkReformTest {
               })
               .thenIdle(5)
               .thenExecute(() -> {
-                  report("merge", probe[0]);
+                  int[] counts = report("merge", probe[0]);
+                  helper.assertTrue(counts[1] > 0 && counts[0] < counts[2] / 10, "updates are batched per chunk");
                   assertOneNetwork(helper, "after merge");
                   cleanup.run();
               })
@@ -196,10 +230,11 @@ public class NetworkReformTest {
         );
     }
 
-    private static void report(String phase, Probe probe) {
+    private static int[] report(String phase, Probe probe) {
         int[] counts = probe.countUpdates();
         Mekanism.logger.info("NetworkReformTest {}: post handlers max {} ms / total {} ms over 5 ticks; transmitter update payloads {} (batched {}),"
                              + " positions {}", phase, probe.maxPostNanos / 1_000_000.0, probe.totalPostNanos / 1_000_000.0, counts[0], counts[1], counts[2]);
+        return counts;
     }
 
     private static EnergyNetwork network(MekGameTestHelper helper, BlockPos pos) {

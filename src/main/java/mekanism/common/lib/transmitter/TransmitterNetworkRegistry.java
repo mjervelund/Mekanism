@@ -66,6 +66,7 @@ public class TransmitterNetworkRegistry {
     }
 
     public static void reset() {
+        TransmitterUpdateQueue.reset();
         networks.clear();
         networksToChange.clear();
         invalidTransmitters.clear();
@@ -133,6 +134,7 @@ public class TransmitterNetworkRegistry {
                 net.onUpdate();
             }
         }
+        TransmitterUpdateQueue.sendQueued();
     }
 
     @SubscribeEvent
