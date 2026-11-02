@@ -130,8 +130,9 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
     /// Takes this transmitter off its chunk's block entity ticker list while it has nothing to do, so tens of thousands of idle cables do not each cost
     /// a ticker entry and a call every tick. [#wakeTicker()] puts it back as soon as one of the conditions of [#needsTicking()] becomes true.
     /// A/B switch for verify builds only (/tekkitperf ab mekanism.common.tile.transmitter.TileEntityTransmitter IDLE_UNTICK true|false).
-    public static boolean IDLE_UNTICK = true;
-    private static boolean lastIdleUntick = true;
+    //Boot-vs-boot: -Dmekverify.noIdleUntick=true starts with the switch off (flipping it at runtime re-adds every ticker out of chunk order)
+    public static boolean IDLE_UNTICK = !Boolean.getBoolean("mekverify.noIdleUntick");
+    private static boolean lastIdleUntick = IDLE_UNTICK;
     private static final java.util.Set<TileEntityTransmitter> SLEEPERS = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
     /// Verify builds only: called every server tick; when the switch goes off, wakes every sleeping transmitter.
