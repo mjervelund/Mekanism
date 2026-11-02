@@ -23,6 +23,8 @@ public class NetworkAcceptorCache<ACCEPTOR> {
 
     private final Long2ObjectMap<Map<Direction, ACCEPTOR>> cachedAcceptors = new Long2ObjectOpenHashMap<>();
     private final Map<Transmitter<ACCEPTOR, ?, ?>, Set<Direction>> changedAcceptors = new Object2ObjectOpenHashMap<>();
+    /// Incremented whenever an acceptor is added, replaced or removed, so networks can cache data derived from the acceptors (see [#getVersion()]).
+    private int version;
 
     public void updateTransmitterOnSide(Transmitter<ACCEPTOR, ?, ?> transmitter, Direction side) {
         transmitter.refreshAcceptorConnections(side);
@@ -31,17 +33,21 @@ public class NetworkAcceptorCache<ACCEPTOR> {
         if (acceptor == null) {
             Map<Direction, ACCEPTOR> cached = cachedAcceptors.get(acceptorPos);
             if (cached != null) {
-                cached.remove(side.getOpposite());
+                if (cached.remove(side.getOpposite()) != null) {
+                    version++;
+                }
                 if (cached.isEmpty()) {
                     cachedAcceptors.remove(acceptorPos);
                 }
             }
-        } else {
-            cachedAcceptors.computeIfAbsent(acceptorPos, pos -> new EnumMap<>(Direction.class)).put(side.getOpposite(), acceptor);
+        } else if (cachedAcceptors.computeIfAbsent(acceptorPos, pos -> new EnumMap<>(Direction.class)).put(side.getOpposite(), acceptor) != acceptor) {
+            //Only a different handler counts as a change: capability invalidations often hand back the same one
+            version++;
         }
     }
 
     public void adoptAcceptors(NetworkAcceptorCache<ACCEPTOR> other) {
+        version++;
         for (ObjectIterator<Long2ObjectMap.Entry<Map<Direction, ACCEPTOR>>> iterator = other.getAcceptorFastIterator(); iterator.hasNext(); ) {
             Long2ObjectMap.Entry<Map<Direction, ACCEPTOR>> entry = iterator.next();
             long pos = entry.getLongKey();
@@ -82,6 +88,7 @@ public class NetworkAcceptorCache<ACCEPTOR> {
     }
 
     public void deregister() {
+        version++;
         cachedAcceptors.clear();
         changedAcceptors.clear();
     }
@@ -94,6 +101,13 @@ public class NetworkAcceptorCache<ACCEPTOR> {
     /// @apiNote Listeners should not be added to these LazyOptionals here as they may not correspond to an actual handler and may not get invalidated.
     public Collection<Map<Direction, ACCEPTOR>> getAcceptorValues() {
         return cachedAcceptors.values();
+    }
+
+    /// {@return a number that changes whenever the cached acceptors change}
+    ///
+    /// Lets a network keep data derived from its acceptors (like the list of handlers it emits to) until the acceptors change.
+    public int getVersion() {
+        return version;
     }
 
     public int getAcceptorCount() {
