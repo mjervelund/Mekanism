@@ -53,6 +53,7 @@ public class NetworkReformTest {
                 builder.fill(x, 0, z + 1, x, 0, z + 1, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState());
             }
         }
+        return builder;
     });
     private static final BlockPos BREAK = new BlockPos(SIZE / 2, 0, SIZE / 2);
 
