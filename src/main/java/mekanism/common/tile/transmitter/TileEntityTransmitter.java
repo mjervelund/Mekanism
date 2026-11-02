@@ -38,6 +38,8 @@ import mekanism.common.util.MultipartUtils;
 import mekanism.common.util.MultipartUtils.AdvancedRayTraceResult;
 import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
@@ -69,6 +71,8 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
     private boolean forceUpdate = true;
     private boolean loaded = false;
     private boolean markJoined = false;
+    /// `true` while this transmitter has taken itself off its chunk's block entity ticker list (see [#sleepIfIdle(ServerLevel)]).
+    private boolean tickerRemoved = false;
 
     public TileEntityTransmitter(Holder<Block> blockProvider, BlockPos pos, BlockState state) {
         super(((IHasTileEntity<? extends TileEntityTransmitter>) blockProvider.value()).getTileType(), pos, state);
@@ -92,6 +96,7 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
 
     public void setForceUpdate() {
         forceUpdate = true;
+        wakeTicker();
     }
 
     public abstract TransmitterType getTransmitterType();
@@ -108,7 +113,46 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
     }
 
     public static void tickServer(Level level, BlockPos pos, BlockState state, TileEntityTransmitter transmitter) {
+        //Being ticked means the chunk (re)registered our ticker, for example after a reload or a block state change
+        transmitter.tickerRemoved = false;
         transmitter.onUpdateServer((ServerLevel) level);
+        transmitter.sleepIfIdle((ServerLevel) level);
+    }
+
+    /// {@return `true` if [#onUpdateServer(ServerLevel)] has work to do on the next tick}
+    ///
+    /// Most transmitters only do something in their own tick right after loading or a connection change, or while they have a side set to pull;
+    /// moving energy, fluids and chemicals is done by their network. Subclasses that do more in their tick must override this.
+    protected boolean needsTicking() {
+        return markJoined || forceUpdate || getTransmitter().hasPullSide();
+    }
+
+    /// Takes this transmitter off its chunk's block entity ticker list while it has nothing to do, so tens of thousands of idle cables do not each cost
+    /// a ticker entry and a call every tick. [#wakeTicker()] puts it back as soon as one of the conditions of [#needsTicking()] becomes true.
+    private void sleepIfIdle(ServerLevel level) {
+        if (!needsTicking() && !isRemoved()) {
+            LevelChunk chunk = level.getChunkSource().getChunkNow(SectionPos.blockToSectionCoord(worldPosition.getX()), SectionPos.blockToSectionCoord(worldPosition.getZ()));
+            if (chunk != null && chunk.getBlockEntity(worldPosition, LevelChunk.EntityCreationType.CHECK) == this) {
+                chunk.removeBlockEntityTicker(worldPosition);
+                tickerRemoved = true;
+            }
+        }
+    }
+
+    /// {@return `true` while this transmitter is off its chunk's block entity ticker list because it had nothing to do}
+    public boolean isTickerRemoved() {
+        return tickerRemoved;
+    }
+
+    /// Puts this transmitter back on its chunk's block entity ticker list if [#sleepIfIdle(ServerLevel)] took it off.
+    public void wakeTicker() {
+        if (tickerRemoved && level instanceof ServerLevel serverLevel && !isRemoved()) {
+            LevelChunk chunk = serverLevel.getChunkSource().getChunkNow(SectionPos.blockToSectionCoord(worldPosition.getX()), SectionPos.blockToSectionCoord(worldPosition.getZ()));
+            if (chunk != null && chunk.getBlockEntity(worldPosition, LevelChunk.EntityCreationType.CHECK) == this) {
+                chunk.updateBlockEntityTicker(this);
+            }
+            tickerRemoved = false;
+        }
     }
 
     @Override
@@ -149,6 +193,7 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
             onWorldJoin(level, false);
         } else {
             markJoined = true;
+            wakeTicker();
         }
     }
 
