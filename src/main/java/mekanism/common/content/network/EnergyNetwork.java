@@ -103,9 +103,12 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
         }
     }
 
+    //Verify-only A/B switch (not for publishing): -Dmekverify.noSaveMarkLimit=true restores marking every change
+    private static final boolean NO_SAVE_MARK_LIMIT = Boolean.getBoolean("mekverify.noSaveMarkLimit");
+
     @Override
     public boolean limitsSaveDirtying() {
-        return true;
+        return !NO_SAVE_MARK_LIMIT;
     }
 
     @Override
