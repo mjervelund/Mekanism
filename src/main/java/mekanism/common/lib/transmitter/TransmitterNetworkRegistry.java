@@ -9,6 +9,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import it.unimi.dsi.fastutil.objects.Reference2LongMap;
+import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import java.util.Collection;
 import java.util.Deque;
@@ -28,13 +30,17 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.level.ChunkTicketLevelUpdatedEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.jspecify.annotations.Nullable;
 
@@ -47,6 +53,11 @@ public class TransmitterNetworkRegistry {
     private static Set<Transmitter<?, ?, ?>> invalidTransmitters = new ObjectOpenHashSet<>();
     private static Set<DynamicNetwork<?, ?, ?>> networksToChange = new ObjectOpenHashSet<>();
     private static Set<TileEntityTransmitter> transmittersToMarkForSave = new ReferenceOpenHashSet<>();
+    private static Set<DynamicBufferedNetwork<?, ?, ?, ?>> networksWithDeferredSaveMark = new ReferenceOpenHashSet<>();
+    /// Chunks with transmitters of networks that limit their save marks, which went from loaded to "unloaded", and the game time they did
+    private static final Reference2LongMap<LevelChunk> unloadingChunks = new Reference2LongOpenHashMap<>();
+    /// How long a chunk that became inaccessible without unloading is kept marked
+    private static final int UNLOADING_CHUNK_MARK_TICKS = 5 * 60 * 20;
 
     public static void addClientNetwork(UUID networkID, DynamicNetwork<?, ?, ?> network) {
         if (!clientNetworks.containsKey(networkID)) {
@@ -69,6 +80,8 @@ public class TransmitterNetworkRegistry {
 
     public static void reset() {
         transmittersToMarkForSave.clear();
+        networksWithDeferredSaveMark.clear();
+        unloadingChunks.clear();
         networks.clear();
         networksToChange.clear();
         invalidTransmitters.clear();
@@ -138,6 +151,52 @@ public class TransmitterNetworkRegistry {
         }
     }
 
+    /// See [DynamicBufferedNetwork#deferMarkForSave()].
+    static void deferMarkForSave(DynamicBufferedNetwork<?, ?, ?, ?> network) {
+        networksWithDeferredSaveMark.add(network);
+    }
+
+    private static void handleDeferredSaveMarks() {
+        if (!networksWithDeferredSaveMark.isEmpty()) {
+            networksWithDeferredSaveMark.removeIf(network -> !network.handleDeferredMarkForSave());
+        }
+        if (!unloadingChunks.isEmpty()) {
+            //Keep unloading chunks marked until they unload: something (an eager chunk save) may have saved them since they were marked
+            for (ObjectIterator<Reference2LongMap.Entry<LevelChunk>> iterator = unloadingChunks.reference2LongEntrySet().iterator(); iterator.hasNext(); ) {
+                Reference2LongMap.Entry<LevelChunk> entry = iterator.next();
+                LevelChunk chunk = entry.getKey();
+                if (chunk.getLevel().getGameTime() - entry.getLongValue() > UNLOADING_CHUNK_MARK_TICKS) {
+                    iterator.remove();
+                } else {
+                    chunk.markUnsaved();
+                }
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onChunkUnload(ChunkEvent.Unload event) {
+        //Note: This fires after the chunk was saved for the last time
+        if (!unloadingChunks.isEmpty() && event.getChunk() instanceof LevelChunk chunk) {
+            unloadingChunks.removeLong(chunk);
+        }
+    }
+
+    /// Marks the chunks of every network that limits its save marks and makes their next save recompute the shares, so that the final save of a
+    /// stopping server stores the current contents. Runs before the server saves and unloads its chunks for the last time.
+    public static void prepareFinalSave() {
+        for (DynamicNetwork<?, ?, ?> network : networks) {
+            if (network instanceof DynamicBufferedNetwork<?, ?, ?, ?> bufferedNetwork && bufferedNetwork.limitsSaveDirtying()) {
+                bufferedNetwork.prepareFinalSave();
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerStopping(ServerStoppingEvent event) {
+        prepareFinalSave();
+    }
+
     public static void registerChangedNetwork(DynamicNetwork<?, ?, ?> network) {
         networksToChange.add(network);
     }
@@ -163,6 +222,7 @@ public class TransmitterNetworkRegistry {
                 net.onUpdate();
             }
         }
+        handleDeferredSaveMarks();
     }
 
     @SubscribeEvent
@@ -183,6 +243,20 @@ public class TransmitterNetworkRegistry {
         DimData dimData = dimDataOrNull(event.getLevel().dimension());
         if (dimData != null) {
             dimData.onTicketLevelChange(event.getChunkPos(), loaded);
+            ChunkHolder holder = event.getChunkHolder();
+            if (holder != null && holder.getLatestChunk() instanceof LevelChunk chunk) {
+                if (loaded) {
+                    unloadingChunks.removeLong(chunk);
+                } else if (dimData.hasSaveLimitedTransmitter(event.getChunkPos())) {
+                    //The transmitters of this chunk are about to leave their network and take their save shares with them (at the end of this
+                    // tick, or when the chunk unloads, if that comes first). Networks that limit their save marks may have left this chunk saved
+                    // with older shares, so mark it now and keep it marked until it unloads (see #handleDeferredSaveMarks): then its last save
+                    // stores the shares its transmitters take, like it did when these networks marked their chunks every tick. Mark the chunk
+                    // itself, as it may already be inaccessible, where WorldUtils#markChunkDirty can no longer find it.
+                    chunk.markUnsaved();
+                    unloadingChunks.put(chunk, event.getLevel().getGameTime());
+                }
+            }
         }
     }
 
@@ -357,6 +431,18 @@ public class TransmitterNetworkRegistry {
 
         void untrackTransmitter(Transmitter<?, ?, ?> transmitter) {
             transmitters.remove(ChunkPos.pack(transmitter.getBlockPos()), transmitter);
+        }
+
+        boolean hasSaveLimitedTransmitter(long chunkPos) {
+            Collection<Transmitter<?, ?, ?>> chunkTransmitters = transmitters.get(chunkPos);
+            if (chunkTransmitters != null) {
+                for (Transmitter<?, ?, ?> transmitter : chunkTransmitters) {
+                    if (transmitter.getTransmitterNetwork() instanceof DynamicBufferedNetwork<?, ?, ?, ?> network && network.limitsSaveDirtying()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
         void onTicketLevelChange(long chunkPos, boolean loaded) {

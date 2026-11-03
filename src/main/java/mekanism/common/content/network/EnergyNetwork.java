@@ -101,6 +101,16 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
     }
 
     @Override
+    public boolean limitsSaveDirtying() {
+        return true;
+    }
+
+    @Override
+    protected long getSaveMarkAmount() {
+        return energyContainer.getAmountAsLong();
+    }
+
+    @Override
     protected boolean updateSaveSharesDirect(@Nullable UniversalCable triggerTransmitter) {
         if (!isEmpty()) {
             Collection<UniversalCable> transmitters = getTransmitters();

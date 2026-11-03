@@ -252,9 +252,15 @@ public class UniversalCable extends BufferedTransmitter<EnergyHandler, EnergyNet
 
         private void onShareChanged(long originalState) {
             if (this.saveShare != originalState) {
-                //Note: This commit often runs while another transmitter of the network is being saved (from inside vanilla's chunk saving),
-                // so mark our chunk at the end of the tick instead of now
-                TransmitterNetworkRegistry.markForSaveAtEndOfTick(getTransmitterTile());
+                EnergyNetwork network = getTransmitterNetwork();
+                if (network != null && !network.mayMarkForSave()) {
+                    //The network marks its chunks later (see DynamicBufferedNetwork#limitsSaveDirtying)
+                    network.deferMarkForSave();
+                } else {
+                    //Note: This commit often runs while another transmitter of the network is being saved (from inside vanilla's chunk saving),
+                    // so mark our chunk at the end of the tick instead of now
+                    TransmitterNetworkRegistry.markForSaveAtEndOfTick(getTransmitterTile());
+                }
             }
         }
     }
