@@ -26,6 +26,9 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     @Nullable
     private Range3D packetRange;
     protected long capacity;
+    /// Set on the client when transmitters join this network; the capacity is recomputed once, on the next read, instead
+    /// of once per joining transmitter (a network forming on the client sends one update per transmitter).
+    private boolean capacityDirty;
     protected boolean needsUpdate;
     private boolean forceScaleUpdate;
     private long lastSaveShareWriteTime;
@@ -127,7 +130,13 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
         return true;
     }
 
+    /// Marks the capacity as stale so that it gets recomputed by the next call to [#getCapacity()].
+    public void markCapacityDirty() {
+        capacityDirty = true;
+    }
+
     public synchronized void updateCapacity() {
+        capacityDirty = false;
         long sum = 0;
         for (TRANSMITTER transmitter : getTransmitters()) {
             long transmitterCapacity = transmitter.getCapacity();
@@ -145,6 +154,9 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     }
 
     public long getCapacity() {
+        if (capacityDirty) {
+            updateCapacity();
+        }
         return capacity;
     }
 

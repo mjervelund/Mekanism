@@ -171,13 +171,13 @@ public abstract class BufferedTransmitter<ACCEPTOR, NETWORK extends DynamicBuffe
     @Override
     protected void handleContentsUpdateTag(NETWORK network, ValueInput input) {
         super.handleContentsUpdateTag(network, input);
-        network.updateCapacity();
+        network.markCapacityDirty();
     }
 
     @Override
     protected void updateClientNetwork(NETWORK network) {
         super.updateClientNetwork(network);
-        network.updateCapacity();
+        network.markCapacityDirty();
     }
 
     /// @return Gets and releases the transmitter's buffer.
