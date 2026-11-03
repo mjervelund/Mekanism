@@ -41,6 +41,12 @@ public abstract class TileEntityLogisticalTransporterBase extends TileEntityTran
     }
 
     @Override
+    protected boolean needsTicking() {
+        //Transporters move their items in their own tick
+        return true;
+    }
+
+    @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
         super.preRemoveSideEffects(pos, state);
         if (level != null && !level.isClientSide()) {
