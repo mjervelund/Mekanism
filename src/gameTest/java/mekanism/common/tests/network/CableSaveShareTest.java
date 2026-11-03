@@ -76,7 +76,8 @@ public class CableSaveShareTest {
               .thenWaitUntil(() -> unloader.waitFor(helper, false))
               //Let the rest of the line form its networks again
               .thenIdle(5)
-              .thenExecute(() -> {
+              //Note: Retried until it matches, as the chunk's last save is written in the background
+              .thenWaitUntil(() -> {
                   //What the unloaded chunk stores on disk plus what the loaded cables still hold must be exactly what the line held
                   long onDisk = savedCableEnergy(helper, unloader.chunk);
                   long loaded = 0;
