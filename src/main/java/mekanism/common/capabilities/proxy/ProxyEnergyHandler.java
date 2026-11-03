@@ -2,6 +2,8 @@ package mekanism.common.capabilities.proxy;
 
 import mekanism.api.AutomationType;
 import mekanism.api.energy.IEnergyContainer;
+import mekanism.common.capabilities.energy.BasicEnergyContainer;
+import mekanism.common.capabilities.holder.single.BasicSingleHolder;
 import mekanism.common.capabilities.holder.single.ISingleContainerHolder;
 import net.minecraft.core.Direction;
 import net.neoforged.neoforge.transfer.energy.EnergyHandler;
@@ -44,6 +46,22 @@ public class ProxyEnergyHandler extends ProxyHandler<ISingleContainerHolder<IEne
         }
         IEnergyContainer container = getContainer();
         return container == null || !container.isValidForInsertion(AutomationType.handler(side));
+    }
+
+    /// {@return `true` if [#insert(int, TransactionContext)] inserts nothing now and will keep doing so for as long as this handler is exposed}
+    ///
+    /// Holds for a side without access, and for a holder with a single container (like a generator's) whose container never accepts insertion from
+    /// this side's automation type: then the facing and the side do not matter, as the only container that could be returned refuses the insert. Side
+    /// configuration changes invalidate the capability, so a holder whose answer depends on them is not covered here.
+    public boolean neverInserts() {
+        if (readOnly) {
+            return true;
+        }
+        if (holder != null && holder.getClass() == BasicSingleHolder.class) {
+            IEnergyContainer container = ((BasicSingleHolder<IEnergyContainer>) holder).getOnlyContainer();
+            return container instanceof BasicEnergyContainer basic && basic.neverValidForInsertion(AutomationType.handler(side));
+        }
+        return false;
     }
 
     @Override
