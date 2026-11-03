@@ -37,6 +37,7 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     private boolean saveMarkDeferred;
     private long lastSaveMarkTime;
     private long amountAtSaveMark;
+    private boolean saveShareRecomputeForced;
 
     protected DynamicBufferedNetwork(UUID networkID) {
         super(networkID);
@@ -181,6 +182,15 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
             world = triggerTransmitter.getLevel();
         }
         if (world != null && world.getGameTime() != lastSaveShareWriteTime) {
+            if (transaction == null && !saveShareRecomputeForced && limitsSaveDirtying() && !mayMarkForSave()
+                && !TransmitterNetworkRegistry.isInUnloadingChunk(triggerTransmitter)) {
+                //Keep the shares of the last computation: the chunks of this network are not marked for saving right now, so a transmitter saved now
+                // is saved because something else in its chunk changed, and the shares it would write are not needed yet (see #limitsSaveDirtying).
+                // Each such save would otherwise recompute the shares of the whole network. The last computed shares still add up to what the network
+                // stored back then, and whenever the chunks get marked (or one unloads, or the server stops) the shares are computed again first.
+                return;
+            }
+            saveShareRecomputeForced = false;
             lastSaveShareWriteTime = world.getGameTime();
             if (transaction == null && updateSaveSharesDirect(triggerTransmitter)) {
                 //Nothing outer can roll the shares back, so they were computed without a transaction
@@ -237,6 +247,9 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     /// [TransmitterNetworkRegistry#prepareFinalSave()]). A chunk whose transmitters leave the network because it is unloaded (or becomes
     /// inaccessible) is marked when its ticket level drops and kept marked until it unloads (see [TransmitterNetworkRegistry#onTicketLevelChange]),
     /// so the shares those transmitters take with them are exactly the ones its last save stores.
+    ///
+    /// While the chunks are not due to be marked, saving a transmitter (because something else in its chunk changed) also keeps the save shares of the
+    /// last computation instead of recomputing them for the whole network (see [#validateSaveShares]).
     ///
     /// The amount a chunk stores on disk may then lag the network by up to that interval, which only matters if the server crashes (vanilla's own
     /// chunks lag the same way between autosaves).
@@ -297,6 +310,7 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     void prepareFinalSave() {
         if (world != null && !isEmpty()) {
             lastSaveShareWriteTime = Long.MIN_VALUE;
+            saveShareRecomputeForced = true;
             markChunksForSave();
         }
     }

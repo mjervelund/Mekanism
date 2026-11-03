@@ -6,6 +6,8 @@ import it.unimi.dsi.fastutil.longs.Long2BooleanRBTreeMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
@@ -167,6 +169,7 @@ public class TransmitterNetworkRegistry {
                 LevelChunk chunk = entry.getKey();
                 if (chunk.getLevel().getGameTime() - entry.getLongValue() > UNLOADING_CHUNK_MARK_TICKS) {
                     iterator.remove();
+                    stopTrackingUnloading(chunk);
                 } else {
                     chunk.markUnsaved();
                 }
@@ -179,7 +182,24 @@ public class TransmitterNetworkRegistry {
         //Note: This fires after the chunk was saved for the last time
         if (!unloadingChunks.isEmpty() && event.getChunk() instanceof LevelChunk chunk) {
             unloadingChunks.removeLong(chunk);
+            stopTrackingUnloading(chunk);
         }
+    }
+
+    private static void stopTrackingUnloading(LevelChunk chunk) {
+        DimData dimData = dimDataOrNull(chunk.getLevel().dimension());
+        if (dimData != null) {
+            dimData.unloadingChunks.remove(chunk.getPos().pack());
+        }
+    }
+
+    /// @return `true` if the transmitter is in a chunk that went from loaded to "unloaded" and did not unload yet (see [#onTicketLevelChange]).
+    static boolean isInUnloadingChunk(Transmitter<?, ?, ?> transmitter) {
+        if (unloadingChunks.isEmpty()) {
+            return false;
+        }
+        DimData dimData = dimDataOrNull(transmitter.getDimension());
+        return dimData != null && dimData.unloadingChunks.contains(ChunkPos.pack(transmitter.getBlockPos()));
     }
 
     /// Marks the chunks of every network that limits its save marks and makes their next save recompute the shares, so that the final save of a
@@ -247,6 +267,7 @@ public class TransmitterNetworkRegistry {
             if (holder != null && holder.getLatestChunk() instanceof LevelChunk chunk) {
                 if (loaded) {
                     unloadingChunks.removeLong(chunk);
+                    dimData.unloadingChunks.remove(event.getChunkPos());
                 } else if (dimData.hasSaveLimitedTransmitter(event.getChunkPos())) {
                     //The transmitters of this chunk are about to leave their network and take their save shares with them (at the end of this
                     // tick, or when the chunk unloads, if that comes first). Networks that limit their save marks may have left this chunk saved
@@ -255,6 +276,7 @@ public class TransmitterNetworkRegistry {
                     // itself, as it may already be inaccessible, where WorldUtils#markChunkDirty can no longer find it.
                     chunk.markUnsaved();
                     unloadingChunks.put(chunk, event.getLevel().getGameTime());
+                    dimData.unloadingChunks.add(event.getChunkPos());
                 }
             }
         }
@@ -414,6 +436,8 @@ public class TransmitterNetworkRegistry {
     private static class DimData {
 
         private final LongMultimap<Transmitter<?, ?, ?>> transmitters = new LongMultimap<>();
+        /// Positions of the chunks in [#unloadingChunks] of this dimension
+        private final LongSet unloadingChunks = new LongOpenHashSet();
         private /*chunkpos*/ Long2BooleanMap changedTicketChunks = newL2BMap();
         private /*blockpos*/ Long2ObjectMap<Transmitter<?, ?, ?>> newOrphanTransmitters = newL2OMap();
 
