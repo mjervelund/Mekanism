@@ -15,6 +15,7 @@ import mekanism.common.lib.transmitter.ConnectionType;
 import mekanism.common.lib.transmitter.DynamicNetwork;
 import mekanism.common.lib.transmitter.TransmissionType;
 import mekanism.common.lib.transmitter.TransmitterNetworkRegistry;
+import mekanism.common.lib.transmitter.TransmitterUpdateQueue;
 import mekanism.common.lib.transmitter.acceptor.AcceptorCache;
 import mekanism.common.tile.interfaces.ITileWrapper;
 import mekanism.common.tile.transmitter.TileEntityTransmitter;
@@ -429,7 +430,8 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
 
     /// Only call on the server
     public void requestsUpdate() {
-        getTransmitterTile().sendUpdatePacket();
+        //Note: Sent at the end of the tick, batched per chunk: a network forming, merging or splitting requests an update for each of its transmitters
+        TransmitterUpdateQueue.queue(getTransmitterTile());
     }
 
     public void writeReducedUpdatedTag(ValueOutput output) {
@@ -571,7 +573,7 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
                 recheckConnections(newlyEnabledTransmitters);
             }
             if (sendDesc) {
-                getTransmitterTile().sendUpdatePacket();
+                TransmitterUpdateQueue.queue(getTransmitterTile());
             }
         }
     }
@@ -583,7 +585,7 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
             boolean possibleAcceptor = getPossibleAcceptorConnection(side, false);
             if (possibleAcceptor != connectionMapContainsSide(acceptorCache.currentAcceptorConnections, side)) {
                 acceptorCache.currentAcceptorConnections = setConnectionBit(acceptorCache.currentAcceptorConnections, possibleAcceptor, side);
-                getTransmitterTile().sendUpdatePacket();
+                TransmitterUpdateQueue.queue(getTransmitterTile());
             }
         }
     }
@@ -609,7 +611,7 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
                 recheckConnection(side);
             }
             if (sendDesc) {
-                getTransmitterTile().sendUpdatePacket();
+                TransmitterUpdateQueue.queue(getTransmitterTile());
             }
         }
     }

@@ -9,6 +9,7 @@ import mekanism.common.network.to_client.PacketHitBlockEffect;
 import mekanism.common.network.to_client.PacketLightningRender;
 import mekanism.common.network.to_client.PacketPortalFX;
 import mekanism.common.network.to_client.PacketSetDeltaMovement;
+import mekanism.common.network.to_client.PacketTransmitterUpdates;
 import mekanism.common.network.to_client.PacketUpdateTile;
 import mekanism.common.network.to_client.configuration.SyncAllSecurityData;
 import mekanism.common.network.to_client.container.PacketUpdateContainer;
@@ -162,6 +163,7 @@ public class PacketHandler extends BasePacketHandler {
         showModeChange = registrar.playInstanced(Mekanism.rl("show_mode_change"), (_, _) -> MekanismStatusOverlay.INSTANCE.setTimer());
         registrar.play(PacketUpdateContainer.TYPE, PacketUpdateContainer.STREAM_CODEC);
         registrar.play(PacketUpdateTile.TYPE, PacketUpdateTile.STREAM_CODEC);
+        registrar.play(PacketTransmitterUpdates.TYPE, PacketTransmitterUpdates.STREAM_CODEC);
         registrar.play(PacketSetDeltaMovement.TYPE, PacketSetDeltaMovement.STREAM_CODEC);
 
         //QIO
