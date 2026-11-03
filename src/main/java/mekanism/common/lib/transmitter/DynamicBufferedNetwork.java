@@ -14,6 +14,7 @@ import mekanism.common.util.MekanismUtils;
 import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.bus.api.Event;
 import net.neoforged.neoforge.transfer.transaction.Transaction;
 import net.neoforged.neoforge.transfer.transaction.TransactionContext;
@@ -34,6 +35,12 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     private long lastSaveShareWriteTime;
     private long lastMarkDirtyTime;
     public float currentScale;
+    //Save dirty limiting (see #limitsSaveDirtying): a new network (any split or merge creates one) always marks its chunks once
+    private boolean saveMarkForced = true;
+    private boolean saveMarkDeferred;
+    private long lastSaveMarkTime;
+    private long amountAtSaveMark;
+    private boolean saveShareRecomputeForced;
 
     protected DynamicBufferedNetwork(UUID networkID) {
         super(networkID);
@@ -75,6 +82,10 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     @Override
     protected void validTransmittersAdded() {
         super.validTransmittersAdded();
+        if (saveMarkForced && limitsSaveDirtying()) {
+            //Make sure a new network marks its chunks at the end of the tick even if its contents don't change
+            deferMarkForSave();
+        }
         clampBuffer();
         if (forceScaleUpdate) {
             forceScaleUpdate = false;
@@ -183,6 +194,15 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
             world = triggerTransmitter.getLevel();
         }
         if (world != null && world.getGameTime() != lastSaveShareWriteTime) {
+            if (transaction == null && !saveShareRecomputeForced && limitsSaveDirtying() && !mayMarkForSave()
+                && !TransmitterNetworkRegistry.isInUnloadingChunk(triggerTransmitter)) {
+                //Keep the shares of the last computation: the chunks of this network are not marked for saving right now, so a transmitter saved now
+                // is saved because something else in its chunk changed, and the shares it would write are not needed yet (see #limitsSaveDirtying).
+                // Each such save would otherwise recompute the shares of the whole network. The last computed shares still add up to what the network
+                // stored back then, and whenever the chunks get marked (or one unloads, or the server stops) the shares are computed again first.
+                return;
+            }
+            saveShareRecomputeForced = false;
             lastSaveShareWriteTime = world.getGameTime();
             if (transaction == null && updateSaveSharesDirect(triggerTransmitter)) {
                 //Nothing outer can roll the shares back, so they were computed without a transaction
@@ -197,11 +217,113 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
 
     public void markDirty() {
         if (world != null && !world.isClientSide() && world.getGameTime() != lastMarkDirtyTime) {
+            if (!mayMarkForSave()) {
+                deferMarkForSave();
+                return;
+            }
             lastMarkDirtyTime = world.getGameTime();
+            markChunksForSave();
+        }
+    }
+
+    private void markChunksForSave() {
+        if (limitsSaveDirtying()) {
+            //Note: Only mark chunks that are there right now. WorldUtils#markChunkDirty would wait for (and so load in the middle of our tick) a chunk
+            // of the network that is currently being loaded again, as this also runs at the end of the server tick and not only from content changes
+            for (LongIterator iterator = chunks.iterator(); iterator.hasNext(); ) {
+                long chunk = iterator.nextLong();
+                LevelChunk levelChunk = world.getChunkSource().getChunkNow(ChunkPos.getX(chunk), ChunkPos.getZ(chunk));
+                if (levelChunk != null) {
+                    levelChunk.markUnsaved();
+                }
+            }
+            saveMarkForced = false;
+            saveMarkDeferred = false;
+            lastSaveMarkTime = world.getGameTime();
+            amountAtSaveMark = getSaveMarkAmount();
+        } else {
             for (LongIterator iterator = chunks.iterator(); iterator.hasNext(); ) {
                 long chunk = iterator.nextLong();
                 WorldUtils.markChunkDirty(world, ChunkPos.getX(chunk), ChunkPos.getZ(chunk));
             }
+        }
+    }
+
+    /// Whether changes to this network's contents and save shares mark its chunks unsaved only now and then instead of every tick.
+    ///
+    /// Every content change of a busy network (each tick) used to mark all of its chunks unsaved, and so did every save share that changed when one of
+    /// its transmitters was saved. A large network's chunks then never stay saved: vanilla saves them again and again (eager chunk saves while the tick
+    /// has time left, and every autosave), and every such save recomputes the save shares of the whole network. With this enabled, the chunks are
+    /// marked at most once per [#SAVE_MARK_INTERVAL] ticks, or after [#SAVE_MARK_MIN_INTERVAL] ticks once the stored amount moved by more than a
+    /// quarter of the capacity, and always when the network is created (split or merge) and before the server stops (see
+    /// [TransmitterNetworkRegistry#prepareFinalSave()]). A chunk whose transmitters leave the network because it is unloaded (or becomes
+    /// inaccessible) is marked when its ticket level drops and kept marked until it unloads (see [TransmitterNetworkRegistry#onTicketLevelChange]),
+    /// so the shares those transmitters take with them are exactly the ones its last save stores.
+    ///
+    /// While the chunks are not due to be marked, saving a transmitter (because something else in its chunk changed) also keeps the save shares of the
+    /// last computation instead of recomputing them for the whole network (see [#validateSaveShares]).
+    ///
+    /// The amount a chunk stores on disk may then lag the network by up to that interval, which only matters if the server crashes (vanilla's own
+    /// chunks lag the same way between autosaves).
+    public boolean limitsSaveDirtying() {
+        return false;
+    }
+
+    /// The stored amount compared against [#getCapacity()] to decide when a change is large enough to mark the chunks early.
+    protected long getSaveMarkAmount() {
+        return 0;
+    }
+
+    /// Ticks between two save marks of a network whose contents keep changing (vanilla's autosave interval at 20 TPS).
+    public static final int SAVE_MARK_INTERVAL = 5 * 60 * 20;
+    /// Minimum ticks between two save marks caused by a large change of the stored amount.
+    public static final int SAVE_MARK_MIN_INTERVAL = 30 * 20;
+
+    /// @return `true` if a change to this network's saved state may mark its chunks (or a transmitter's chunk) unsaved now.
+    public boolean mayMarkForSave() {
+        if (!limitsSaveDirtying() || saveMarkForced || world == null) {
+            return true;
+        }
+        long sinceLastMark = world.getGameTime() - lastSaveMarkTime;
+        if (sinceLastMark >= SAVE_MARK_INTERVAL || sinceLastMark < 0) {
+            return true;
+        }
+        return sinceLastMark >= SAVE_MARK_MIN_INTERVAL && Math.abs(getSaveMarkAmount() - amountAtSaveMark) > getCapacity() / 4;
+    }
+
+    /// Remembers that the network's saved state changed without marking its chunks, so that they get marked at the end of a later tick.
+    public void deferMarkForSave() {
+        if (!saveMarkDeferred) {
+            saveMarkDeferred = true;
+            TransmitterNetworkRegistry.deferMarkForSave(this);
+        }
+    }
+
+    /// Called at the end of the server tick for networks with a deferred mark.
+    ///
+    /// @return `true` if the mark is still deferred.
+    boolean handleDeferredMarkForSave() {
+        if (!saveMarkDeferred) {
+            return false;
+        } else if (isEmpty() || world == null) {
+            //Deregistered or not formed yet: nothing to mark (a new network gets marked once it formed)
+            saveMarkDeferred = false;
+            return false;
+        } else if (mayMarkForSave()) {
+            lastMarkDirtyTime = world.getGameTime();
+            markChunksForSave();
+            return false;
+        }
+        return true;
+    }
+
+    /// Before the final save of a stopping server: mark every chunk of the network and make the next save recompute the shares from the current
+    /// contents, so that all chunks store shares of the same final amount.
+    void prepareFinalSave() {
+        if (world != null && !isEmpty()) {
+            lastSaveShareWriteTime = Long.MIN_VALUE;
+            saveShareRecomputeForced = true;
+            markChunksForSave();
         }
     }
 
