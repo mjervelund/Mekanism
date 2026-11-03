@@ -90,6 +90,9 @@ public class LogisticalTransporter extends LogisticalTransporterBase implements 
         setColor(data.color);
         transit.putAll(data.transit);
         needsSync.putAll(data.needsSync);
+        if (!transit.isEmpty()) {
+            getTransmitterTile().wakeTicker();
+        }
         nextId = data.nextId;
         delay = data.delay;
         delayCount = data.delayCount;

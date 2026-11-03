@@ -42,8 +42,9 @@ public abstract class TileEntityLogisticalTransporterBase extends TileEntityTran
 
     @Override
     protected boolean needsTicking() {
-        //Transporters move their items in their own tick
-        return true;
+        //Transporters move their items in transit in their own tick, and pull on their own delay; an empty transporter without a pull side has
+        // nothing to do until an item is added (LogisticalTransporterBase#addStack wakes it)
+        return super.needsTicking() || getTransmitter().hasTransit();
     }
 
     @Override
