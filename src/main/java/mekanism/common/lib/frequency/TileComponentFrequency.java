@@ -149,12 +149,19 @@ public class TileComponentFrequency implements ITileComponent {
     }
 
     public <FREQ extends Frequency> void setFrequencyFromData(FrequencyType<FREQ> type, FrequencyIdentity data, @Nullable UUID player) {
-        if (player != null) {
+        //Frequencies only exist on the server (the controllers are created on server load), the client gets the selected frequency
+        // synced. This is reached on the client when a block is placed and the placement prediction calls setPlacedBy
+        if (player != null && !isClientSide()) {
             FrequencyData frequencyData = getFrequencyData(type);
             if (frequencyData != null) {
                 setFrequencyFromData(type, data, player, frequencyData);
             }
         }
+    }
+
+    private boolean isClientSide() {
+        Level level = tile.getLevel();
+        return level != null && level.isClientSide();
     }
 
     private <FREQ extends Frequency> void setFrequencyFromData(FrequencyType<FREQ> type, FrequencyIdentity data, UUID player, FrequencyData frequencyData) {
@@ -186,6 +193,9 @@ public class TileComponentFrequency implements ITileComponent {
     }
 
     public void removeFrequencyFromData(FrequencyType<?> type, FrequencyIdentity data, UUID player) {
+        if (isClientSide()) {
+            return;
+        }
         FrequencyLookup<?> manager = type.getLookup(data, data.ownerUUID() == null ? player : data.ownerUUID());
         if (manager != null && manager.remove(data.key(), player)) {
             FrequencyData frequencyData = getFrequencyData(type);
