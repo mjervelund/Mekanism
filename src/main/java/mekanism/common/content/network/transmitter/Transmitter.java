@@ -122,6 +122,14 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
         }
         this.connectionTypes = connectionTypes;
         this.hasPullSide = recalculateHasPull(connectionTypes);
+        if (hasPullSide) {
+            getTransmitterTile().wakeTicker();
+        }
+    }
+
+    /// {@return `true` if at least one side is set to pull}
+    public boolean hasPullSide() {
+        return hasPullSide;
     }
 
     private boolean recalculateHasPull(ConnectionType [] connectionTypes) {
@@ -144,6 +152,7 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
             connectionTypes[index] = type;
             if (type == ConnectionType.PULL) {
                 hasPullSide = true;
+                getTransmitterTile().wakeTicker();
             } else if (hasPullSide) {
                 this.hasPullSide = recalculateHasPull(connectionTypes);
             }
