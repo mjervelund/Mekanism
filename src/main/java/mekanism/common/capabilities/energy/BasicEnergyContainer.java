@@ -145,6 +145,13 @@ public class BasicEnergyContainer extends SnapshotJournal<Long> implements IEner
         return canInsert.test(automationType);
     }
 
+    /// {@return `true` if [#isValidForInsertion(AutomationType)] is `false` for the given automation type and always will be}
+    ///
+    /// Only the shared stateless predicates are known not to change their answer; any other predicate may depend on the state of its owner.
+    public final boolean neverValidForInsertion(AutomationType automationType) {
+        return (canInsert == internalOnly || canInsert == manualOnly || canInsert == ConstantPredicates.<AutomationType>alwaysFalse()) && !canInsert.test(automationType);
+    }
+
     @Override
     protected Long createSnapshot() {
         return stored;

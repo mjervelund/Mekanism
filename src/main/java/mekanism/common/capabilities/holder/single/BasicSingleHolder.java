@@ -40,4 +40,9 @@ public class BasicSingleHolder<CONTAINER> extends BasicHolder implements ISingle
         }
         return null;
     }
+
+    /// {@return the one container this holder exposes, on whichever sides it is exposed}
+    public CONTAINER getOnlyContainer() {
+        return container;
+    }
 }
