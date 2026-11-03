@@ -17,7 +17,7 @@ import net.neoforged.testframework.gametest.StructureTemplateBuilder;
 public class TransmitterIdleTickTest {
 
     @GameTest(setupTicks = SharedConstants.TICKS_PER_SECOND)
-    @TestHolder(description = "Idle cables leave the block entity ticker list, come back when a side is set to pull and leave again when it is not; transporters keep ticking.")
+    @TestHolder(description = "Idle cables leave the block entity ticker list, come back when a side is set to pull and leave again when it is not; so do empty transporters.")
     public static void idleCableSleepsAndWakes(final DynamicTest test) {
         test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(3, 1, 1)
               .set(0, 0, 0, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState())
@@ -28,7 +28,7 @@ public class TransmitterIdleTickTest {
               .thenIdle(5)
               .thenExecute(() -> {
                   helper.assertTrue(helper.getBlockEntity(0, 0, 0, TileEntityUniversalCable.class).isTickerRemoved(), "Idle cable should not be ticking");
-                  helper.assertFalse(helper.getBlockEntity(2, 0, 0, TileEntityLogisticalTransporter.class).isTickerRemoved(), "Transporter should keep ticking");
+                  helper.assertTrue(helper.getBlockEntity(2, 0, 0, TileEntityLogisticalTransporter.class).isTickerRemoved(), "Empty transporter without a pull side should not be ticking");
                   //Normal -> push -> pull on the open side of the first cable
                   helper.getBlockEntity(0, 0, 0, TileEntityUniversalCable.class).getTransmitter().setConnectionTypeRaw(Direction.UP, ConnectionType.PULL);
                   helper.assertFalse(helper.getBlockEntity(0, 0, 0, TileEntityUniversalCable.class).isTickerRemoved(), "Pull side should wake the cable");

@@ -450,6 +450,13 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
 
     public void addStack(int id, TransporterStack s) {
         transit.put(id, s);
+        //Items in transit move in our own tick
+        getTransmitterTile().wakeTicker();
+    }
+
+    /// {@return `true` if this transporter has items in transit}
+    public boolean hasTransit() {
+        return !transit.isEmpty();
     }
 
     public void drop(Level level, TransporterStack stack, @Nullable TransactionContext transaction) {
