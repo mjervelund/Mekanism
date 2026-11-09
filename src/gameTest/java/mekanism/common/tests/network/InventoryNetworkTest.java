@@ -3,6 +3,9 @@ package mekanism.common.tests.network;
 import java.util.function.Supplier;
 import mekanism.api.text.EnumColor;
 import mekanism.api.tier.AlloyTier;
+import mekanism.common.content.network.transmitter.LogisticalTransporterBase;
+import mekanism.common.content.transporter.TransporterStack;
+import mekanism.common.tile.transmitter.TileEntityLogisticalTransporterBase;
 import mekanism.common.content.network.transmitter.DiversionTransporter.DiversionControl;
 import mekanism.common.lib.transmitter.ConnectionType;
 import mekanism.common.registries.MekanismBlocks;
@@ -12,11 +15,13 @@ import mekanism.common.tests.util.StructureBuilderUtils;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.neoforged.neoforge.transfer.item.ItemResource;
 import net.neoforged.testframework.DynamicTest;
 import net.neoforged.testframework.annotation.ForEachTest;
 import net.neoforged.testframework.annotation.RegisterStructureTemplate;
@@ -619,6 +624,45 @@ public class InventoryNetworkTest {
               .thenExecute(() -> helper.assertContainerContains(2, 0, 2, Items.STONE, 16))
               //Validate start is also empty
               .thenExecute(() -> helper.assertContainerEmpty(0, 0, 0))
+              .thenSucceed()
+        );
+    }
+
+    @GameTest(setupTicks = SharedConstants.TICKS_PER_SECOND)
+    @TestHolder(description = "Tests that the data synced to clients for a transporter holding a very large number of stacks stays bounded, "
+                              + "so that the chunk packet does not grow until clients get a Network Protocol Error when joining. "
+                              + "https://github.com/mekanism/Mekanism/issues/8279")
+    public static void updateTagBoundedWithManyStacks(final DynamicTest test) {
+        test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(1, 1, 1)
+              .set(0, 0, 0, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+        );
+
+        test.onGameTest(TransmitterTestHelper.class, helper -> helper.startSequence()
+              .thenExecute(() -> {
+                  TileEntityLogisticalTransporterBase tile = helper.getBlockEntity(0, 0, 0, TileEntityLogisticalTransporterBase.class);
+                  LogisticalTransporterBase transporter = tile.getTransmitter();
+                  //Simulate stacks that accumulated in the transporter over a long time (for example ones that keep bouncing because their destination
+                  // keeps getting filled by something else before they arrive)
+                  int stacks = 10_000;
+                  for (int i = 0; i < stacks; i++) {
+                      TransporterStack stack = new TransporterStack();
+                      stack.setStack(ItemResource.of(Items.STONE), 1);
+                      transporter.addStack(i, stack);
+                  }
+                  CompoundTag updateTag = tile.getUpdateTag(helper.getLevel().registryAccess());
+                  //Syncing must not touch the server side state
+                  helper.assertValueEqual(transporter.getTransit().size(), stacks, "Stacks in transit after writing the update tag");
+                  //Remove the stacks again before checking, so that they don't get processed (and dropped) after the test
+                  for (int i = 0; i < stacks; i++) {
+                      transporter.deleteStack(i);
+                  }
+                  int size = updateTag.sizeInBytes();
+                  //One transporter's sync data must stay small (a few stacks are ~100 bytes each); unbounded it is ~1 MB here
+                  int limit = 64 * 1024;
+                  if (size > limit) {
+                      helper.fail("Update tag of a transporter holding " + stacks + " stacks is " + size + " bytes, expected at most " + limit, BlockPos.ZERO);
+                  }
+              })
               .thenSucceed()
         );
     }
