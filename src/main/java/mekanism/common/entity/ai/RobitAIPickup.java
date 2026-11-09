@@ -43,7 +43,8 @@ public class RobitAIPickup extends RobitAIBase {
             double distance = theRobit.distanceToSqr(entity);
             if (distance <= SEARCH_RADIUS_SQ) {
                 if (closestDistance == -1 || distance < closestDistance) {
-                    if (navigator.createPath(entity, 0) != null) {
+                    //Skip items we have no room for, otherwise we keep walking to them (and never follow our owner) without being able to pick them up
+                    if (theRobit.canPickUp(entity) && navigator.createPath(entity, 0) != null) {
                         closest = entity;
                         closestDistance = distance;
                     }
@@ -55,8 +56,8 @@ public class RobitAIPickup extends RobitAIBase {
     }
 
     private boolean validateClosest() {
-        return closest != null && EntityRobit.isItemValid(closest) && closest.level().dimension() == theRobit.level().dimension() &&
-               theRobit.distanceToSqr(closest) <= SEARCH_RADIUS_SQ;
+        return closest != null && closest.level().dimension() == theRobit.level().dimension() &&
+               theRobit.distanceToSqr(closest) <= SEARCH_RADIUS_SQ && theRobit.canPickUp(closest);
     }
 
     @Override
