@@ -110,10 +110,13 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
         super.removeInvalid(triggerTransmitter);
         //Clamp the new buffer
         clampBuffer();
-        //Update all shares
-        try (Transaction transaction = Transaction.openRoot()) {
-            updateSaveShares(triggerTransmitter, transaction);
-            transaction.commit();
+        //Update all shares. This runs outside any transaction (the network is being invalidated, and every transmitter then takes its share), so compute them
+        // directly where the network can, instead of journaling every transmitter's share in a root transaction
+        if (!updateSaveSharesDirect(triggerTransmitter)) {
+            try (Transaction transaction = Transaction.openRoot()) {
+                updateSaveShares(triggerTransmitter, transaction);
+                transaction.commit();
+            }
         }
     }
 
