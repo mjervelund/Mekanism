@@ -13,6 +13,7 @@ import java.util.UUID;
 import mekanism.api.RelativeSide;
 import mekanism.api.text.EnumColor;
 import mekanism.common.MekanismLang;
+import mekanism.common.capabilities.item.TransporterItemHandler;
 import mekanism.common.content.network.transmitter.LogisticalTransporterBase;
 import mekanism.common.content.transporter.PathfinderCache;
 import mekanism.common.content.transporter.TransporterManager;
@@ -58,6 +59,12 @@ public class InventoryNetwork extends DynamicNetwork<ResourceHandler<ItemResourc
                 GlobalPos position = GlobalPos.of(getWorld().dimension(), blockPos);
                 for (Map.Entry<Direction, ResourceHandler<ItemResource>> acceptorEntry : entry.getValue().entrySet()) {
                     ResourceHandler<ItemResource> handler = acceptorEntry.getValue();
+                    if (handler instanceof TransporterItemHandler transporterHandler && transporterHandler.getTransporter().getTransmitterNetwork() == this) {
+                        //Skip blocks that proxy the item handler of one of our own transporters back to us (for example capability extenders),
+                        // as sending items out of the network just for them to be inserted back into it is pointless, and calculating the
+                        // paths for it would recurse infinitely (https://github.com/mekanism/Mekanism/issues/8446)
+                        continue;
+                    }
                     Direction side = acceptorEntry.getKey();
                     PathfinderCache.CachedPath cachedPath = PathfinderCache.getSingleCache(start, blockPos, side);
                     if (cachedPath != null && !TransporterPathfinder.checkPath(this, cachedPath.path(), stack)) {
