@@ -148,9 +148,6 @@ public class FusionReactorMultiblockData extends MultiblockData {
     private boolean clientBurning;
     private double clientTemp;
 
-    private long maxWater;
-    private long maxSteam;
-
     @Nullable
     private AABB deathZone;
 
@@ -462,9 +459,6 @@ public class FusionReactorMultiblockData extends MultiblockData {
     public void setInjectionRate(int rate, @Nullable TransactionContext transaction) {
         if (injectionRate != rate) {
             injectionRate = rate;
-            //TODO - 26.3: Should these configs be limited to ints?
-            maxWater = injectionRate * MekanismGeneratorsConfig.generators.fusionWaterPerInjection.get();
-            maxSteam = injectionRate * MekanismGeneratorsConfig.generators.fusionSteamPerInjection.get();
             if (!isClientSide()) {
                 ContainerType.FLUID.clampContents(waterTank, transaction);
                 ContainerType.CHEMICAL.clampContents(steamTank, transaction);
@@ -473,12 +467,15 @@ public class FusionReactorMultiblockData extends MultiblockData {
         }
     }
 
+    //Note: The capacities are calculated from the injection rate rather than being cached when it changes, as otherwise they would stay at zero
+    // when the multiblock forms with the default injection rate
+    //TODO - 26.3: Should these configs be limited to ints?
     private long getMaxWater() {
-        return maxWater;
+        return injectionRate * MekanismGeneratorsConfig.generators.fusionWaterPerInjection.get();
     }
 
     private long getMaxSteam() {
-        return maxSteam;
+        return injectionRate * MekanismGeneratorsConfig.generators.fusionSteamPerInjection.get();
     }
 
     @ComputerMethod(nameOverride = "isIgnited", methodDescription = "Checks if a reaction is occurring.")
