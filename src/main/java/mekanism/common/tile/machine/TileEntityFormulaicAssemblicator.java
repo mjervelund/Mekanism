@@ -176,7 +176,7 @@ public class TileEntityFormulaicAssemblicator extends TileEntityConfigurableMach
                     } else if (stockControl) {
                         ItemResource stockItem = stockControlMap[index];
                         if (!stockItem.isEmpty()) {
-                            return stockItem.equals(itemType);
+                            return isStockEquivalent(stockItem, itemType);
                         }
                     }
                     return formula.isValidIngredient(level, itemType);
@@ -589,6 +589,20 @@ public class TileEntityFormulaicAssemblicator extends TileEntityConfigurableMach
         }
     }
 
+    /// {@return true if the given item may go in a stock slot controlled by stockItem: either the same item, or one the formula accepts in a position that stockItem
+    /// fills (for example a damaged tool)}
+    private boolean isStockEquivalent(ItemResource stockItem, ItemResource itemType) {
+        if (stockItem.equals(itemType)) {
+            return true;
+        }
+        for (int i = 0; i < 9; i++) {
+            if (stockItem.matches(formula.getInputStack(i)) && formula.isIngredientInPos(level, itemType, i)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void organizeStock() {
         if (formula.isEmpty()) {
             return;
@@ -617,6 +631,15 @@ public class TileEntityFormulaicAssemblicator extends TileEntityConfigurableMach
                     //If this slot is uncontrolled, add it at the start of the list of empty slots
                     emptySlots.addFirst(slot);
                 } else {
+                    if (!storedMap.containsKey(itemType)) {
+                        //No exact match stored, fall back to an item the formula accepts in place of the controlled type (e.g. a damaged tool)
+                        for (ItemResource storedType : storedMap.keySet()) {
+                            if (isStockEquivalent(itemType, storedType)) {
+                                itemType = storedType;
+                                break;
+                            }
+                        }
+                    }
                     int stored = storedMap.getInt(itemType);
                     if (stored > 0) {
                         int count = Math.min(slot.capacityAsInt(itemType), stored);
