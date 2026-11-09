@@ -277,7 +277,13 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
     }
 
     public boolean supportsTransmissionType(Transmitter<?, ?, ?> transmitter) {
-        return transmitter.getSupportedTransmissionTypes().stream().anyMatch(supportedTransmissionTypes::contains);
+        //Plain loop instead of a stream: this runs for every neighbour of every transmitter when a network forms
+        for (TransmissionType type : transmitter.getSupportedTransmissionTypes()) {
+            if (supportedTransmissionTypes.contains(type)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean supportsTransmissionType(TileEntityTransmitter transmitter) {
