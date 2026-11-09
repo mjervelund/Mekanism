@@ -66,6 +66,12 @@ import org.jspecify.annotations.Nullable;
 
 public abstract class LogisticalTransporterBase extends Transmitter<ResourceHandler<ItemResource>, InventoryNetwork, LogisticalTransporterBase> {
 
+    /// Maximum number of stacks in transit that get included in the update tag. Stacks can accumulate in a transporter (for example when their destination keeps
+    /// getting filled by something else), and as every stack is written to the tag, an unbounded tag can make the chunk packet too large for clients to join
+    /// ([#8279](https://github.com/mekanism/Mekanism/issues/8279)). The client only uses these stacks for rendering, so we only sync a limited number of
+    /// them; the server side state is unaffected.
+    private static final int MAX_SYNCED_STACKS = 32;
+
     protected final Int2ObjectMap<TransporterStack> transit = new Int2ObjectOpenHashMap<>();
     protected final Int2ObjectMap<TransporterStack> needsSync = new Int2ObjectOpenHashMap<>();
     private final DroppedItems droppedItems = new DroppedItems();
@@ -378,7 +384,8 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
         super.writeReducedUpdatedTag(output);
         if (!transit.isEmpty()) {
             ValueOutputList itemOutputs = output.childrenList(SerializationConstants.ITEMS);
-            for (ObjectIterator<Int2ObjectMap.Entry<TransporterStack>> iterator = Int2ObjectMaps.fastIterator(transit); iterator.hasNext(); ) {
+            int synced = 0;
+            for (ObjectIterator<Int2ObjectMap.Entry<TransporterStack>> iterator = Int2ObjectMaps.fastIterator(transit); iterator.hasNext() && synced < MAX_SYNCED_STACKS; synced++) {
                 Int2ObjectMap.Entry<TransporterStack> entry = iterator.next();
                 ValueOutput itemOutput = itemOutputs.addChild();
                 itemOutput.putInt(SerializationConstants.INDEX, entry.getIntKey());
