@@ -25,7 +25,15 @@ public class NetworkAcceptorCache<ACCEPTOR> {
     private final Map<Transmitter<ACCEPTOR, ?, ?>, Set<Direction>> changedAcceptors = new Object2ObjectOpenHashMap<>();
 
     public void updateTransmitterOnSide(Transmitter<ACCEPTOR, ?, ?> transmitter, Direction side) {
-        transmitter.refreshAcceptorConnections(side);
+        updateTransmitterOnSide(transmitter, side, true);
+    }
+
+    /// @param refresh `false` to trust the transmitter's current acceptor connection on this side instead of looking up the neighbour again (it is kept current
+    ///                by neighbour updates and capability invalidations, see [Transmitter#takeAcceptorSidesToRefresh()]).
+    public void updateTransmitterOnSide(Transmitter<ACCEPTOR, ?, ?> transmitter, Direction side, boolean refresh) {
+        if (refresh) {
+            transmitter.refreshAcceptorConnections(side);
+        }
         ACCEPTOR acceptor = transmitter.canConnectToAcceptor(side) ? transmitter.getAcceptor(side) : null;
         long acceptorPos = WorldUtils.relativePos(transmitter.getWorldPositionLong(), side);
         if (acceptor == null) {
@@ -79,6 +87,18 @@ public class NetworkAcceptorCache<ACCEPTOR> {
             }
             changedAcceptors.clear();
         }
+    }
+
+    /// Hands the acceptor changes this network has not committed yet to their transmitters, so that the network they join next checks those sides. Used
+    /// when this network is invalidated, which would otherwise drop them.
+    public void handChangedAcceptorsToTransmitters() {
+        for (Entry<Transmitter<ACCEPTOR, ?, ?>, Set<Direction>> entry : changedAcceptors.entrySet()) {
+            Transmitter<ACCEPTOR, ?, ?> transmitter = entry.getKey();
+            for (Direction side : entry.getValue()) {
+                transmitter.markAcceptorForRefresh(side);
+            }
+        }
+        changedAcceptors.clear();
     }
 
     public void deregister() {

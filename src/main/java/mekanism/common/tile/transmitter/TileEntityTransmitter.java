@@ -178,6 +178,8 @@ public abstract class TileEntityTransmitter extends CapabilityTileEntity impleme
     }
 
     private void onWorldJoin(Level level, boolean wasPresent) {
+        //Neighbours may have changed while this transmitter was not in the world (or not accessible), without telling it
+        getTransmitter().markAllAcceptorsForRefresh();
         if (!level.isClientSide() && !wasPresent) {
             //If we weren't already present, and we are on the server, track this transmitter
             TransmitterNetworkRegistry.trackTransmitter(getTransmitter());

@@ -39,6 +39,7 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
 
     private static final boolean DEFAULT_REDSTONE_REACTIVE = false;
     private static final byte DEFAULT_TRANSMITTER_CONNECTIONS = 0x00;
+    private static final byte ALL_SIDES = 0x3F;
     private static final int[] MISSING_RAW_CONNECTIONS = new int[EnumUtils.DIRECTIONS.length];
 
     public static boolean connectionMapContainsSide(byte connections, Direction side) {
@@ -89,6 +90,10 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
     private NETWORK theNetwork = null;
     private boolean orphaned = true;
     private boolean isUpgrading;
+    /// Sides whose acceptor connection has to be looked up again when this transmitter is next added to a network (see [DynamicNetwork#commit()]). All sides
+    /// after joining the world (placed, loaded, or its chunk accessible again); otherwise only the sides whose acceptor was reported changed while the
+    /// transmitter had no network or while its network was being invalidated. A transmitter that only moves to a re-formed network keeps its connections.
+    private byte acceptorSidesToRefresh = ALL_SIDES;
 
     public Transmitter(TileEntityTransmitter transmitterTile, TransmissionType... transmissionTypes) {
         this.transmitterTile = transmitterTile;
@@ -668,7 +673,27 @@ public abstract class Transmitter<ACCEPTOR, NETWORK extends DynamicNetwork<ACCEP
     public void markDirtyAcceptor(Direction side) {
         if (hasTransmitterNetwork()) {
             getTransmitterNetworkNN().acceptorChanged(getTransmitter(), side);
+        } else {
+            //No network to tell yet: check the side when this transmitter is added to one
+            markAcceptorForRefresh(side);
         }
+    }
+
+    /// Makes the next [DynamicNetwork#commit()] that adds this transmitter look up the acceptor connection on the given side again.
+    public void markAcceptorForRefresh(Direction side) {
+        acceptorSidesToRefresh = setConnectionBit(acceptorSidesToRefresh, true, side);
+    }
+
+    /// Makes the next [DynamicNetwork#commit()] that adds this transmitter look up the acceptor connections on all sides again.
+    public void markAllAcceptorsForRefresh() {
+        acceptorSidesToRefresh = ALL_SIDES;
+    }
+
+    /// @return the sides whose acceptor connection has to be looked up again, as a connection bit map, and forgets them.
+    public byte takeAcceptorSidesToRefresh() {
+        byte sides = acceptorSidesToRefresh;
+        acceptorSidesToRefresh = 0;
+        return sides;
     }
 
     public void remove() {
