@@ -156,6 +156,10 @@ public class FormationProtocol<T extends MultiblockData> {
             try (Transaction transaction = Transaction.openRoot()) {
                 cache.apply(structureFound, transaction);
                 structureFound.inventoryID = idToUse;
+                //Make sure the pointer knows about the new id right away. We just replaced the caches of all the ids we found with one under the new id,
+                // and if the structure we formed on gets thrown away (for example by validating an invalidated structure in the same tick) before any of
+                // the tiles tick while formed, then no tile would reference the new id, and the next formation would start with an empty cache
+                pointer.setCacheID(idToUse);
                 structureFound.onCreated(world, transaction);
                 if (trackCache) {
                     //If it is a new fresh cache we need to make sure to then sync the multiblock back to the cache

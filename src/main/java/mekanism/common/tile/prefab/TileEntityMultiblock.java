@@ -243,6 +243,14 @@ public abstract class TileEntityMultiblock<T extends MultiblockData> extends Til
     }
 
     @Override
+    public void setCacheID(UUID id) {
+        if (!id.equals(cachedID)) {
+            cachedID = id;
+            markForSave();
+        }
+    }
+
+    @Override
     public boolean isMaster() {
         return isMaster;
     }
