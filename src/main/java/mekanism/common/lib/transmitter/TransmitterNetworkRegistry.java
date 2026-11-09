@@ -6,13 +6,14 @@ import it.unimi.dsi.fastutil.longs.Long2BooleanRBTreeMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
+import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.util.Collection;
-import java.util.Deque;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -227,8 +228,10 @@ public class TransmitterNetworkRegistry {
         private final Set<TRANSMITTER> connectedTransmitters = new ObjectOpenHashSet<>();
         private final Long2ObjectMap<ChunkAccess> chunkMap = new Long2ObjectOpenHashMap<>();
         private final Set<NETWORK> networksFound = new ObjectOpenHashSet<>();
-        private final Set<BlockPos> iterated = new ObjectOpenHashSet<>();
-        private final Deque<BlockPos> queue = new LinkedList<>();
+        //Packed block positions: a network re-form walks every transmitter of the network, so avoid a BlockPos (and a linked list node) per position
+        private final LongSet iterated = new LongOpenHashSet();
+        private final LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
+        private final BlockPos.MutableBlockPos lookupPos = new BlockPos.MutableBlockPos();
         private final TRANSMITTER startPoint;
         @Nullable
         private final Level world;
@@ -241,13 +244,13 @@ public class TransmitterNetworkRegistry {
 
         NETWORK getNetworkFromOrphan(Long2ObjectMap<Transmitter<?, ?, ?>> orphanTransmitters) {
             //Calculate the network
-            if (queue.peek() != null) {
+            if (!queue.isEmpty()) {
                 Mekanism.logger.error("OrphanPathFinder queue was not empty?!");
                 queue.clear();
             }
-            queue.push(startPoint.getBlockPos());
-            while (queue.peek() != null) {
-                iterate(orphanTransmitters, queue.removeFirst());
+            queue.enqueue(startPoint.getWorldPositionLong());
+            while (!queue.isEmpty()) {
+                iterate(orphanTransmitters, queue.dequeueLong());
             }
             //Create the network or grab the found ones
             NETWORK network;
@@ -271,27 +274,26 @@ public class TransmitterNetworkRegistry {
             return network;
         }
 
-        private void iterate(Long2ObjectMap<Transmitter<?, ?, ?>> orphanTransmitters, BlockPos from) {
+        private void iterate(Long2ObjectMap<Transmitter<?, ?, ?>> orphanTransmitters, long from) {
             if (iterated.add(from)) {
-                Transmitter<?, ?, ?> transmitter = orphanTransmitters.get(from.asLong());
+                Transmitter<?, ?, ?> transmitter = orphanTransmitters.get(from);
                 if (transmitter != null) {
                     if (transmitter.isValid() && transmitter.isOrphan() && startPoint.supportsTransmissionType(transmitter) &&
                         transmitterValidator.isTransmitterCompatible(transmitter)) {
                         connectedTransmitters.add((TRANSMITTER) transmitter);
                         transmitter.setOrphan(false);
-                        BlockPos.MutableBlockPos directionPos = new BlockPos.MutableBlockPos();
                         for (Direction direction : EnumUtils.DIRECTIONS) {
-                            directionPos.setWithOffset(from, direction);
-                            if (!iterated.contains(directionPos)) {
-                                TileEntityTransmitter tile = WorldUtils.getTileEntity(TileEntityTransmitter.class, world, chunkMap, directionPos);
+                            long next = BlockPos.offset(from, direction);
+                            if (!iterated.contains(next)) {
+                                TileEntityTransmitter tile = WorldUtils.getTileEntity(TileEntityTransmitter.class, world, chunkMap, lookupPos.set(next));
                                 if (tile != null && transmitter.isValidTransmitterBasic(tile, direction)) {
-                                    queue.addLast(directionPos.immutable());
+                                    queue.enqueue(next);
                                 }
                             }
                         }
                     }
                 } else {
-                    TileEntityTransmitter tile = WorldUtils.getTileEntity(TileEntityTransmitter.class, world, chunkMap, from);
+                    TileEntityTransmitter tile = WorldUtils.getTileEntity(TileEntityTransmitter.class, world, chunkMap, lookupPos.set(from));
                     if (tile != null && startPoint.supportsTransmissionType(tile)) {
                         NETWORK net = (NETWORK) tile.getTransmitter().getTransmitterNetwork();
                         //Make sure that there is an external network
