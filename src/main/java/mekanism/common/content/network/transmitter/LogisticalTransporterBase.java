@@ -68,6 +68,9 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
 
     protected final Int2ObjectMap<TransporterStack> transit = new Int2ObjectOpenHashMap<>();
     protected final Int2ObjectMap<TransporterStack> needsSync = new Int2ObjectOpenHashMap<>();
+    /// Whether the saved contents changed since the last save mark: a stack entered, left, was dropped or changed its amount. A stack that only
+    /// picked a new path (or idle direction) needs no save, as stacks re-path when they are loaded.
+    protected boolean stacksChanged;
     private final DroppedItems droppedItems = new DroppedItems();
     public final TransporterTier tier;
     protected int nextId = 0;
@@ -171,6 +174,9 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                     deletes = tickTransit(level, pos, network, transaction);
                     transaction.commit();
                 }
+                if (!deletes.isEmpty()) {
+                    stacksChanged = true;
+                }
                 if (!deletes.isEmpty() || !needsSync.isEmpty()) {
                     //Notify clients, so that we send the information before we start clearing our lists
                     //Note: We have to copy needsSync so that it still has values when we clear the pending sync packets
@@ -184,8 +190,11 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                     // Clear the pending sync packets
                     needsSync.clear();
 
-                    // Finally, mark chunk for save
-                    getTransmitterTile().markForSave();
+                    // Finally, mark chunk for save if what we save changed (not for stacks that only re-pathed: paths are recalculated on load)
+                    if (stacksChanged) {
+                        stacksChanged = false;
+                        getTransmitterTile().markForSave();
+                    }
                 }
             }
         }
@@ -284,6 +293,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
                                 //Some portion of the stack got rejected; save the remainder and
                                 // recalculate below to sort out what to do next
                                 stack.setStack(response.slotData().getItemType(), rejected);
+                                stacksChanged = true;
                             }//else the entire stack got rejected (Note: we don't need to update the stack to point to itself)
                             prevSet = next;
                         }
@@ -550,6 +560,7 @@ public abstract class LogisticalTransporterBase extends Transmitter<ResourceHand
         stack.progress = progress;
         addStack(stackId, stack);
         needsSync.put(stackId, stack);
+        stacksChanged = true;
 
         // N.B. We are not marking the chunk as dirty here! I don't believe it's needed, since
         // the next tick will generate the necessary save and if we crash before the next tick,

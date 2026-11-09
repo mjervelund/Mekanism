@@ -93,6 +93,8 @@ public class LogisticalTransporter extends LogisticalTransporterBase implements 
         nextId = data.nextId;
         delay = data.delay;
         delayCount = data.delayCount;
+        //The upgraded tile has to save the stacks it took over
+        stacksChanged = !transit.isEmpty();
     }
 
     @Override
