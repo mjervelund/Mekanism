@@ -35,8 +35,9 @@ public class PigmentExtractingRecipeProvider extends BaseSubRecipeProvider {
     private static final int STAINED_GLASS_PANE_RATE = STAINED_GLASS_RATE * 3 / 8;//6
     private static final int WOOL_RATE = DYE_RATE * 3 / 4;//192
     private static final int WOOL_SLAB_RATE = WOOL_RATE / 2;//96
-    private static final int WOOL_STAIR_RATE = WOOL_RATE * 3 / 2;//288
-    private static final int CUSHION_RATE = WOOL_SLAB_RATE * 3;//288
+    //Note: Capped at the dye rate, as painting one stair or cushion only costs one dye worth of pigment
+    private static final int WOOL_STAIR_RATE = Math.min(WOOL_RATE * 3 / 2, DYE_RATE);//256
+    private static final int CUSHION_RATE = Math.min(WOOL_SLAB_RATE * 3, DYE_RATE);//256
     private static final int CARPET_RATE = WOOL_RATE * 2 / 3;//128
 
     PigmentExtractingRecipeProvider(HolderGetter<Item> items, HolderGetter<Fluid> fluids, HolderGetter<Chemical> chemicals) {
