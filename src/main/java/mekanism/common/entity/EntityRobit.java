@@ -353,6 +353,20 @@ public class EntityRobit extends PathfinderMob implements IRobit, ItemRecipeLook
         return item.isAlive() && !item.hasPickUpDelay() && !(item.getItem().getItem() instanceof ItemRobit);
     }
 
+    /**
+     * Checks if the given item is valid for pickup and if this robit currently has room for at least part of it.
+     */
+    public boolean canPickUp(ItemEntity item) {
+        if (!isItemValid(item)) {
+            return false;
+        }
+        ItemStack stack = item.getItem();
+        try (Transaction simulation = TransactionHelper.openTransactionSafe()) {
+            //Simulate only: the transaction is never committed
+            return directInventoryHandler.insert(ItemResource.of(stack), stack.count(), simulation, AutomationType.INTERNAL) > 0;
+        }
+    }
+
     private boolean collectItems(TransactionContext transaction) {
         for (ItemEntity item : level().getEntitiesOfClass(ItemEntity.class, getBoundingBox().inflate(1.5, 1.5, 1.5), RobitAIPickup.ITEM_PREDICATE)) {
             ItemStack stack = item.getItem();
