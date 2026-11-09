@@ -28,6 +28,9 @@ public interface IMultiblock<T extends MultiblockData> extends IMultiblockBase {
     @Nullable
     UUID getCacheID();
 
+    /// Sets the cache id this multiblock tile knows about, used when a multiblock forms so that the new cache id is immediately tracked by at least one tile.
+    void setCacheID(UUID id);
+
     void resetCache();
 
     boolean isMaster();
