@@ -1,6 +1,7 @@
 package mekanism.common.tests.network;
 
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import mekanism.api.text.EnumColor;
 import mekanism.api.tier.AlloyTier;
 import mekanism.common.content.network.transmitter.LogisticalTransporterBase;
@@ -17,10 +18,16 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
+import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.transfer.item.ItemResource;
 import net.neoforged.testframework.DynamicTest;
 import net.neoforged.testframework.annotation.ForEachTest;
@@ -28,6 +35,8 @@ import net.neoforged.testframework.annotation.RegisterStructureTemplate;
 import net.neoforged.testframework.annotation.TestHolder;
 import net.neoforged.testframework.gametest.GameTest;
 import net.neoforged.testframework.gametest.StructureTemplateBuilder;
+import net.neoforged.testframework.registration.RegistrationHelper;
+import org.jspecify.annotations.Nullable;
 
 @ForEachTest(groups = "network.inventory")
 public class InventoryNetworkTest {
@@ -626,6 +635,99 @@ public class InventoryNetworkTest {
               .thenExecute(() -> helper.assertContainerEmpty(0, 0, 0))
               .thenSucceed()
         );
+    }
+
+    @GameTest(timeoutTicks = 8 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
+    @TestHolder(description = "Tests that blocks which proxy the item capability of an adjacent transporter back to it (such as capability extenders) "
+                              + "don't cause infinite recursion when calculating paths, and that items still get to their real destination. "
+                              + "See https://github.com/mekanism/Mekanism/issues/8446")
+    public static void proxiedTransporterCapability(final DynamicTest test, final RegistrationHelper reg) {
+        //A block that when queried for an item handler, hands back the item handler of the block that is querying it
+        DeferredBlock<Block> mirror = reg.blocks().registerSimpleBlock("capability_mirror", UnaryOperator.identity());
+        ProxyCapabilities.mirror = mirror;
+
+        test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(2, 1, 5)
+              //Start barrel
+              .set(0, 0, 0, Blocks.BARREL.defaultBlockState())
+              //End barrel
+              .set(0, 0, 4, Blocks.BARREL.defaultBlockState())
+
+              .set(0, 0, 1, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState(), StructureBuilderUtils.configured(Direction.NORTH))
+              .fill(0, 0, 2, 0, 0, 3, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+              //Two mirrors so that the acceptor skipped for being the stack's home doesn't hide the loop
+              .fill(1, 0, 2, 1, 0, 3, mirror.get().defaultBlockState())
+        );
+
+        test.onGameTest(TransmitterTestHelper.class, helper -> helper.startSequence()
+              .thenExecute(() -> {
+                  //Insert the items so that we only start processing once this test is started
+                  helper.insertIntoContainer(0, 0, 0, Items.STONE);
+                  //And reset the delay that might be present based on what tick we started ticking
+                  helper.resetTransporterDelay(0, 0, 1);
+              })
+              //Wait a few seconds for the item to transfer to the destination
+              .thenExecuteAfter(4 * SharedConstants.TICKS_PER_SECOND, () -> helper.assertContainerContains(0, 0, 4, Items.STONE))
+              .thenExecute(() -> helper.assertContainerEmpty(0, 0, 0))
+              .thenSucceed()
+        );
+    }
+
+    @GameTest(timeoutTicks = 12 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
+    @TestHolder(description = "Tests that blocks which proxy the item capability of a transporter in one network to a transporter in another network "
+                              + "and back again don't cause infinite recursion when calculating paths, and that items still get to their real destination. "
+                              + "See https://github.com/mekanism/Mekanism/issues/8446")
+    public static void proxiedTransporterCapabilityBetweenNetworks(final DynamicTest test, final RegistrationHelper reg) {
+        //A block that when queried for an item handler, hands back the item handler of the block on its opposite side
+        DeferredBlock<Block> passThrough = reg.blocks().registerSimpleBlock("capability_pass_through", UnaryOperator.identity());
+        ProxyCapabilities.passThrough = passThrough;
+
+        test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(3, 1, 5)
+              //Start barrel
+              .set(0, 0, 0, Blocks.BARREL.defaultBlockState())
+              //End barrel
+              .set(0, 0, 4, Blocks.BARREL.defaultBlockState())
+
+              .set(0, 0, 1, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState(), StructureBuilderUtils.configured(Direction.NORTH))
+              .fill(0, 0, 2, 0, 0, 3, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+              //Connect the network to a second network and the second network back to the first one
+              .fill(1, 0, 2, 1, 0, 3, passThrough.get().defaultBlockState())
+              .fill(2, 0, 2, 2, 0, 3, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+        );
+
+        test.onGameTest(TransmitterTestHelper.class, helper -> helper.startSequence()
+              .thenExecute(() -> {
+                  //Insert the items so that we only start processing once this test is started
+                  helper.insertIntoContainer(0, 0, 0, Items.STONE);
+                  //And reset the delay that might be present based on what tick we started ticking
+                  helper.resetTransporterDelay(0, 0, 1);
+              })
+              //Wait a few seconds for the item to transfer to the destination
+              .thenExecuteAfter(8 * SharedConstants.TICKS_PER_SECOND, () -> helper.assertContainerContains(0, 0, 4, Items.STONE))
+              .thenExecute(() -> helper.assertContainerEmpty(0, 0, 0))
+              .thenSucceed()
+        );
+    }
+
+    //Note: Capabilities are registered before any tests are enabled, so we can't use the test's event listeners (which only fire while the test is enabled)
+    @EventBusSubscriber(modid = MekanismTests.MODID)
+    public static class ProxyCapabilities {
+
+        @Nullable
+        private static DeferredBlock<Block> mirror;
+        @Nullable
+        private static DeferredBlock<Block> passThrough;
+
+        @SubscribeEvent
+        public static void registerCapabilities(RegisterCapabilitiesEvent event) {
+            if (mirror != null) {
+                event.registerBlock(Capabilities.Item.BLOCK, (level, pos, state, blockEntity, side) ->
+                      side == null ? null : level.getCapability(Capabilities.Item.BLOCK, pos.relative(side), side.getOpposite()), mirror.get());
+            }
+            if (passThrough != null) {
+                event.registerBlock(Capabilities.Item.BLOCK, (level, pos, state, blockEntity, side) ->
+                      side == null ? null : level.getCapability(Capabilities.Item.BLOCK, pos.relative(side.getOpposite()), side), passThrough.get());
+            }
+        }
     }
 
     @GameTest(setupTicks = SharedConstants.TICKS_PER_SECOND)

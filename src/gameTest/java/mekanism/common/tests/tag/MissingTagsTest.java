@@ -4,6 +4,7 @@ package mekanism.common.tests.tag;
 import java.util.Set;
 import java.util.stream.Collectors;
 import mekanism.common.Mekanism;
+import mekanism.common.tests.MekanismTests;
 import mekanism.common.tests.helpers.MissingElementTestHelper;
 import net.minecraft.core.Holder.Reference;
 import net.minecraft.core.HolderLookup;
@@ -41,6 +42,8 @@ public class MissingTagsTest {
             Set<ResourceKey<Block>> missingTags = BuiltInRegistries.BLOCK.listElements()
                   //Only mekanism items
                   .filter(element -> element.key().identifier().getNamespace().startsWith(Mekanism.MODID))
+                  //Except for ones registered by our tests
+                  .filter(element -> !element.key().identifier().getNamespace().startsWith(MekanismTests.MODID))
                   // If it doesn't block motion, and isn't known to not block motion
                   .filter(element -> !element.is(BlockTags.BLOCKS_MOTION) && !element.is(KNOWN_MISSING))
                   .filter(element -> !(element.value() instanceof LiquidBlock))

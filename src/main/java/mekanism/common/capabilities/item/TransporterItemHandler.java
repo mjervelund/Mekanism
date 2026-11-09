@@ -12,6 +12,7 @@ public class TransporterItemHandler implements ResourceHandler<ItemResource> {
 
     private final LogisticalTransporterBase transporter;
     private final long fromPos;
+    private boolean inserting;
 
     TransporterItemHandler(LogisticalTransporterBase transporter, long fromPos) {
         this.transporter = transporter;
@@ -66,7 +67,17 @@ public class TransporterItemHandler implements ResourceHandler<ItemResource> {
         //Note: We skip checking Transmitter#canConnectMutual, as transporters should never end up using this path,
         // so then it would just fall back to having checked Transmitter#canConnect, which is already covered by
         // the check to LogisticalTransporterBase#exposesInsertCap in TransporterCapabilityResolver
-        return transporter.insertUnchecked(level, fromPos, resource, Math.min(amount, transporter.tier.getPullAmount()), transaction);
+        if (inserting) {
+            //If we are already inserting through this handler, something proxied it back to us (for example a capability extender
+            // connected to a different network that connects back to this one), so exit instead of recursing infinitely
+            return 0;
+        }
+        inserting = true;
+        try {
+            return transporter.insertUnchecked(level, fromPos, resource, Math.min(amount, transporter.tier.getPullAmount()), transaction);
+        } finally {
+            inserting = false;
+        }
     }
 
     @Override
