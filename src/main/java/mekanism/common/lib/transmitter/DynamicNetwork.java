@@ -59,8 +59,11 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
                     if (world == null) {
                         world = transmitter.getLevel();
                     }
+                    //Only look up the neighbours that may have changed: a transmitter that moves to a re-formed network (one of its network's transmitters
+                    // was removed or unloaded) keeps its acceptor connections, which neighbour updates and capability invalidations keep current
+                    byte sidesToRefresh = transmitter.takeAcceptorSidesToRefresh();
                     for (Direction side : EnumUtils.DIRECTIONS) {
-                        acceptorCache.updateTransmitterOnSide(transmitter, side);
+                        acceptorCache.updateTransmitterOnSide(transmitter, side, Transmitter.connectionMapContainsSide(sidesToRefresh, side));
                     }
                     if (transmitter.setTransmitterNetwork(getNetwork(), false)) {
                         transmittersToUpdate.add(transmitter);
@@ -122,6 +125,8 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
         removeInvalid(triggerTransmitter);
         //Now invalidate the transmitters
         if (!isClientSide()) {
+            //The networks these transmitters join next only look up the neighbours whose acceptors changed, including changes this network had not committed yet
+            acceptorCache.handChangedAcceptorsToTransmitters();
             try (Transaction transaction = Transaction.openRoot()) {
                 for (TRANSMITTER transmitter : getTransmitters()) {
                     if (transmitter.isValid()) {
