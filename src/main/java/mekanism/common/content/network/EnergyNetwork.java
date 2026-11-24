@@ -1,5 +1,7 @@
 package mekanism.common.content.network;
 
+import it.unimi.dsi.fastutil.objects.Reference2LongMap;
+import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -126,6 +128,33 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
             }
         }
         return true;
+    }
+
+    @Override
+    protected boolean keepsNetworkOnRemoval() {
+        return true;
+    }
+
+    @Override
+    protected void takeSharesOfLeavingTransmitters(List<UniversalCable> leaving) {
+        //The same shares invalidating the network gives them: split the energy over all transmitters still here (see removeInvalid)
+        clampBuffer();
+        Collection<UniversalCable> transmitters = getTransmitters();
+        long[] capacities = new long[transmitters.size()];
+        int i = 0;
+        for (UniversalCable transmitter : transmitters) {
+            capacities[i++] = transmitter.getCapacity();
+        }
+        long[] shares = CapacitySplit.split(capacities, energyContainer.getAmountAsLong());
+        Reference2LongMap<UniversalCable> leavingShares = new Reference2LongOpenHashMap<>(leaving.size());
+        i = 0;
+        for (UniversalCable transmitter : transmitters) {
+            leavingShares.put(transmitter, shares[i++]);
+        }
+        for (UniversalCable transmitter : leaving) {
+            transmitter.setSaveShare(leavingShares.getLong(transmitter));
+            transmitter.takeShare(null);
+        }
     }
 
     protected void tickEmit() {

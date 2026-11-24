@@ -115,6 +115,20 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     }
 
     @Override
+    protected void onTransmittersRemoved() {
+        super.onTransmittersRemoved();
+        chunks.clear();
+        for (TRANSMITTER transmitter : getTransmitters()) {
+            chunks.add(ChunkPos.pack(transmitter.getBlockPos()));
+        }
+        updateCapacity();
+        //Like invalidating the network does for the transmitters that are still there: the buffer can't hold more than they can
+        clampBuffer();
+        needsUpdate = true;
+        packetRange = null;
+    }
+
+    @Override
     public void onContentsChanged() {
         markDirty();
     }
