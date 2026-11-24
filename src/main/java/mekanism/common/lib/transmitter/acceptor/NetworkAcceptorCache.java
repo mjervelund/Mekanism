@@ -55,7 +55,9 @@ public class NetworkAcceptorCache<ACCEPTOR> {
             long acceptorPos = WorldUtils.relativePos(pos, side);
             Map<Direction, ACCEPTOR> cached = cachedAcceptors.get(acceptorPos);
             if (cached != null) {
-                cached.remove(side.getOpposite());
+                if (cached.remove(side.getOpposite()) != null) {
+                    version++;
+                }
                 if (cached.isEmpty()) {
                     cachedAcceptors.remove(acceptorPos);
                 }
