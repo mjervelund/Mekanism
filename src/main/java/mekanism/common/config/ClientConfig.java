@@ -25,6 +25,7 @@ public class ClientConfig extends BaseMekanismConfig {
 
     public final CachedBooleanValue opaqueTransmitters;
     public final CachedIntValue berRange;
+    public final CachedIntValue transmitterContentsRange;
 
     public final CachedFloatValue baseSoundVolume;
     public final CachedBooleanValue enablePlayerSounds;
@@ -85,6 +86,8 @@ public class ClientConfig extends BaseMekanismConfig {
               .define("energyColor", 0x3CFE9A));
         berRange = CachedIntValue.wrap(this, MekanismConfigTranslations.CLIENT_BE_RENDER_RANGE.applyToBuilder(builder)
               .defineInRange("berRange", 256, 1, 1_024));
+        transmitterContentsRange = CachedIntValue.wrap(this, MekanismConfigTranslations.CLIENT_TRANSMITTER_CONTENTS_RENDER_RANGE.applyToBuilder(builder)
+              .defineInRange("transmitterContentsRange", 64, 1, 1_024));
 
         MekanismConfigTranslations.CLIENT_PARTICLE.applyToBuilder(builder).push("particle");
         enableMultiblockFormationParticles = CachedBooleanValue.wrap(this, MekanismConfigTranslations.CLIENT_PARTICLE_MULTIBLOCK_FORMATION.applyToBuilder(builder)
