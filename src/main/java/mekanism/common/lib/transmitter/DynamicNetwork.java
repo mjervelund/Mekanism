@@ -3,6 +3,11 @@ package mekanism.common.lib.transmitter;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.util.ArrayList;
@@ -15,6 +20,7 @@ import mekanism.common.Mekanism;
 import mekanism.common.content.network.transmitter.Transmitter;
 import mekanism.common.lib.transmitter.acceptor.NetworkAcceptorCache;
 import mekanism.common.util.EnumUtils;
+import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
@@ -114,6 +120,9 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
     }
 
     public void invalidate(@Nullable TRANSMITTER triggerTransmitter) {
+        if (triggerTransmitter != null && !triggerTransmitter.isValid() && !isClientSide() && removeInvalidKeepingNetwork()) {
+            return;
+        }
         if (transmittersSize() == 1 && triggerTransmitter != null && !triggerTransmitter.isValid()) {
             //We're destroying the last transmitter in the network
             //Note: We check it isn't valid to make sure we are destroying it and not just changing redstone sensitivity
@@ -137,6 +146,97 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
     }
 
     protected void onLastTransmitterRemoved(TRANSMITTER triggerTransmitter) {
+    }
+
+    /// Whether this network may stay formed when some of its transmitters are removed or unloaded, instead of being invalidated and re-formed from all
+    /// of its transmitters (see [#removeInvalidKeepingNetwork()]). Networks that enable this implement [#takeSharesOfLeavingTransmitters] and
+    /// [#onTransmittersRemoved].
+    protected boolean keepsNetworkOnRemoval() {
+        return false;
+    }
+
+    /// Removes the transmitters that are no longer valid (broken, or in a chunk that became inaccessible) without re-forming the network.
+    ///
+    /// Invalidating a network makes every one of its transmitters take its share, become an orphan, get walked again and join a new network (with new
+    /// acceptor lookups, save shares and client updates for each). For a large network that is a lot of work every time a single transmitter at its edge
+    /// unloads. Removing transmitters can only split a network, never join it with anything, so instead find out from the transmitters next to the
+    /// removed ones whether the rest is still connected, through this network's own position map (the same connection check as
+    /// [TransmitterNetworkRegistry.OrphanPathFinder], but no world lookups) and only as far as needed (see [NetworkPartFinder]). If it is, the network
+    /// just drops the removed transmitters. If it fell apart, the largest part stays in this network and only the transmitters of the smaller parts take
+    /// their shares and become orphans, which then form their own networks as usual.
+    ///
+    /// @return `false` if nothing was changed and the network has to be invalidated as before.
+    private boolean removeInvalidKeepingNetwork() {
+        if (!keepsNetworkOnRemoval() || !transmittersToAdd.isEmpty()) {
+            return false;
+        }
+        List<TRANSMITTER> removed = new ArrayList<>();
+        for (TRANSMITTER transmitter : getTransmitters()) {
+            if (!transmitter.isValid()) {
+                removed.add(transmitter);
+            }
+        }
+        if (removed.isEmpty() || removed.size() == transmittersSize()) {
+            return false;
+        }
+        for (TRANSMITTER removedTransmitter : removed) {
+            positionedTransmitters.remove(removedTransmitter.getWorldPositionLong());
+        }
+        LongList starts = new LongArrayList();
+        LongSet checked = new LongOpenHashSet();
+        for (TRANSMITTER removedTransmitter : removed) {
+            long removedPos = removedTransmitter.getWorldPositionLong();
+            for (Direction side : EnumUtils.DIRECTIONS) {
+                long pos = WorldUtils.relativePos(removedPos, side);
+                if (checked.add(pos) && positionedTransmitters.containsKey(pos)) {
+                    starts.add(pos);
+                }
+            }
+        }
+        if (starts.isEmpty()) {
+            //None of the transmitters that are left was next to a removed one (the network was not connected the way we expect): re-form it
+            for (TRANSMITTER removedTransmitter : removed) {
+                positionedTransmitters.put(removedTransmitter.getWorldPositionLong(), removedTransmitter);
+            }
+            return false;
+        }
+        List<TRANSMITTER> gone = new ArrayList<>(removed);
+        for (TRANSMITTER removedTransmitter : removed) {
+            acceptorCache.removeTransmitter(removedTransmitter);
+            removedTransmitter.setTransmitterNetwork(null, false);
+        }
+        List<LongList> cutOff = starts.size() == 1 ? List.of() : new NetworkPartFinder<>(positionedTransmitters).findCutOffParts(starts);
+        if (!cutOff.isEmpty()) {
+            //The parts cut off from the rest leave and form their own networks
+            List<TRANSMITTER> leaving = new ArrayList<>();
+            for (LongList part : cutOff) {
+                for (LongIterator iterator = part.iterator(); iterator.hasNext(); ) {
+                    leaving.add(positionedTransmitters.get(iterator.nextLong()));
+                }
+            }
+            takeSharesOfLeavingTransmitters(leaving);
+            for (TRANSMITTER transmitter : leaving) {
+                positionedTransmitters.remove(transmitter.getWorldPositionLong());
+                acceptorCache.removeTransmitter(transmitter);
+                transmitter.setTransmitterNetwork(null);
+                TransmitterNetworkRegistry.registerOrphanTransmitter(transmitter);
+            }
+            gone.addAll(leaving);
+        }
+        onTransmittersRemoved(gone);
+        return true;
+    }
+
+    /// Called before the given transmitters (still part of this network) leave it as orphans because removing other transmitters disconnected them from
+    /// the part of the network that stays; each of them has to take its share like [#invalidate] makes them do.
+    protected void takeSharesOfLeavingTransmitters(List<TRANSMITTER> leaving) {
+        throw new UnsupportedOperationException();
+    }
+
+    /// Called after [#removeInvalidKeepingNetwork()] removed transmitters from this network.
+    ///
+    /// @param gone The transmitters that are no longer part of this network (removed ones and ones that left as orphans).
+    protected void onTransmittersRemoved(List<TRANSMITTER> gone) {
     }
 
     protected void removeInvalid(@Nullable TRANSMITTER triggerTransmitter) {

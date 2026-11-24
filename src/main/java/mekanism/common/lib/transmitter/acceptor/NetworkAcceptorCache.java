@@ -14,6 +14,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import mekanism.common.content.network.transmitter.Transmitter;
 import mekanism.common.lib.transmitter.TransmitterNetworkRegistry;
+import mekanism.common.util.EnumUtils;
 import mekanism.common.util.WorldUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -43,6 +44,24 @@ public class NetworkAcceptorCache<ACCEPTOR> {
         } else if (cachedAcceptors.computeIfAbsent(acceptorPos, pos -> new EnumMap<>(Direction.class)).put(side.getOpposite(), acceptor) != acceptor) {
             //Only a different handler counts as a change: capability invalidations often hand back the same one
             version++;
+        }
+    }
+
+    /// Drops the acceptors cached for the given transmitter (and its pending acceptor changes), for a transmitter leaving the network.
+    public void removeTransmitter(Transmitter<ACCEPTOR, ?, ?> transmitter) {
+        changedAcceptors.remove(transmitter);
+        long pos = transmitter.getWorldPositionLong();
+        for (Direction side : EnumUtils.DIRECTIONS) {
+            long acceptorPos = WorldUtils.relativePos(pos, side);
+            Map<Direction, ACCEPTOR> cached = cachedAcceptors.get(acceptorPos);
+            if (cached != null) {
+                if (cached.remove(side.getOpposite()) != null) {
+                    version++;
+                }
+                if (cached.isEmpty()) {
+                    cachedAcceptors.remove(acceptorPos);
+                }
+            }
         }
     }
 
