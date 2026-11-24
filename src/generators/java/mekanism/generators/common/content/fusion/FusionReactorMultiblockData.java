@@ -247,10 +247,12 @@ public class FusionReactorMultiblockData extends MultiblockData {
                         injectFuel(transaction, fusionFuel);
                         fuelBurned = burnFuel(transaction);
                     }
-                }
-                if (fuelBurned == 0) {
+                } else {
                     setBurning(false);
                 }
+                //Note: We don't turn off the ignition when no fuel was burned this tick: while the plasma is hot enough to burn, the reaction is
+                // still ignited and resumes once fuel is available again (for example when the fuel supply only arrives a few ticks after the
+                // reactor is loaded after a restart). Once the plasma cools below the burn temperature the ignition is lost below.
             } else {
                 setBurning(false);
             }
