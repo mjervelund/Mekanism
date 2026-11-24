@@ -106,6 +106,16 @@ public abstract class Frequency implements IFrequency {
         }
     }
 
+    /// @return `true` if persistent data of this frequency changed since the frequency was last saved.
+    public boolean isDirty() {
+        return dirty;
+    }
+
+    /// Called once the frequency has been saved.
+    public void resetDirty() {
+        dirty = false;
+    }
+
     @Override
     public boolean isValid() {
         return valid;

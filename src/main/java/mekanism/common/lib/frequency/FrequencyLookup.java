@@ -140,6 +140,32 @@ public class FrequencyLookup<FREQ extends Frequency> extends SavedData {
         setDirty();
     }
 
+    /// Frequencies mark themselves dirty when their persistent data changes (for example the contents of a quantum entangloporter), so the lookup needs saving
+    /// whenever one of its frequencies is dirty.
+    @Override
+    public boolean isDirty() {
+        if (super.isDirty()) {
+            return true;
+        }
+        for (FREQ freq : frequencies.values()) {
+            if (freq.isDirty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void setDirty(boolean dirty) {
+        super.setDirty(dirty);
+        if (!dirty) {
+            //The lookup has been saved, which includes all of its frequencies
+            for (FREQ freq : frequencies.values()) {
+                freq.resetDirty();
+            }
+        }
+    }
+
     public FrequencyType<FREQ> getType() {
         return frequencyType;
     }
