@@ -42,6 +42,12 @@ public abstract class RenderTransmitterBase<TRANSMITTER extends TileEntityTransm
     }
 
     @Override
+    public int getViewDistance() {
+        //Transmitter contents are re-submitted and depth sorted every frame, so large networks are costly to draw far away
+        return Math.min(MekanismConfig.client.transmitterContentsRange.get(), super.getViewDistance());
+    }
+
+    @Override
     public boolean shouldRender(TRANSMITTER tile, Vec3 camera) {
         return shouldRenderTransmitter(tile, camera) && super.shouldRender(tile, camera);
     }
