@@ -849,6 +849,8 @@
   "configuration.mekanism.client.qio.tooltip": "Settings for configuring Mekanism's QIO",
   "configuration.mekanism.client.render_range.block_entity": "BE Render Range",
   "configuration.mekanism.client.render_range.block_entity.tooltip": "Range at which Block Entity Renderers added by Mekanism can render at, for example the contents of multiblocks. Vanilla defaults the rendering range for BERs to 64 for most blocks (for example chests), but uses a range of 256 for blocks like beacons and end gateways. Lowering this will likely increase your performance, at the cost of multiblock contents and wind generators 'popping' in",
+  "configuration.mekanism.client.render_range.transmitter_contents": "Transmitter Contents Render Range",
+  "configuration.mekanism.client.render_range.transmitter_contents.tooltip": "Range at which the contents of Universal Cables, Mechanical Pipes, Pressurized Tubes, Logistical Transporters, and Thermodynamic Conductors render. Each transmitter's contents are drawn and sorted every frame, so large cable networks are expensive to draw from far away. The lower of this and the BE Render Range is used.",
   "configuration.mekanism.client.rendering": "Rendering Settings",
   "configuration.mekanism.client.rendering.button": "Edit Rendering Settings",
   "configuration.mekanism.client.rendering.tooltip": "Settings for adjusting how Mekanism renders certain blocks and how many particles Mekanism adds.",

@@ -44,6 +44,10 @@ public enum MekanismConfigTranslations implements IConfigTranslation {
           "Range at which Block Entity Renderers added by Mekanism can render at, for example the contents of multiblocks. Vanilla defaults the rendering range for "
           + "BERs to 64 for most blocks (for example chests), but uses a range of 256 for blocks like beacons and end gateways. Lowering this will likely increase "
           + "your performance, at the cost of multiblock contents and wind generators 'popping' in"),
+    CLIENT_TRANSMITTER_CONTENTS_RENDER_RANGE("client.render_range.transmitter_contents", "Transmitter Contents Render Range",
+          "Range at which the contents of Universal Cables, Mechanical Pipes, Pressurized Tubes, Logistical Transporters, and Thermodynamic Conductors render. "
+          + "Each transmitter's contents are drawn and sorted every frame, so large cable networks are expensive to draw from far away. The lower of this and the BE "
+          + "Render Range is used."),
 
     CLIENT_PARTICLE("client.particle", "Particle Settings", "Settings for configuring Mekanism's Particles", true),
     CLIENT_PARTICLE_MULTIBLOCK_FORMATION("client.particle.multiblock_formation", "Multiblock Formation",
