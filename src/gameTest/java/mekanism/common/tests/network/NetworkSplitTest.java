@@ -3,15 +3,20 @@ package mekanism.common.tests.network;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import mekanism.common.Mekanism;
+import mekanism.api.RelativeSide;
 import mekanism.common.content.network.EnergyNetwork;
 import mekanism.common.content.network.transmitter.UniversalCable;
 import mekanism.common.registries.MekanismBlocks;
 import mekanism.common.tests.MekanismTests;
+import mekanism.common.lib.transmitter.TransmissionType;
 import mekanism.common.tests.helpers.MekGameTestHelper;
+import mekanism.common.tile.TileEntityEnergyCube;
+import mekanism.common.tile.component.config.ConfigInfo;
+import mekanism.common.tile.component.config.DataType;
 import mekanism.common.tile.transmitter.TileEntityUniversalCable;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.ChunkPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
@@ -103,6 +108,21 @@ public class NetworkSplitTest {
         );
     }
 
+    /// Places an energy cube; one placed like this has no side config (no energy on any side), so open the side towards the cable for energy input.
+    private static void placeCube(MekGameTestHelper helper, BlockPos pos, Direction towardsCable) {
+        helper.setBlock(pos, MekanismBlocks.BASIC_ENERGY_CUBE.defaultState());
+        TileEntityEnergyCube cube = helper.getBlockEntity(pos, TileEntityEnergyCube.class);
+        RelativeSide side = RelativeSide.fromDirections(cube.getDirection(), towardsCable);
+        ConfigInfo config = cube.getConfig().getConfig(TransmissionType.ENERGY);
+        helper.assertTrue(config != null && config.setDataType(DataType.INPUT, side), "Could not open the cube's side towards the cable");
+        cube.getConfig().sideChanged(TransmissionType.ENERGY, side);
+    }
+
+    private static long cubeEnergy(MekGameTestHelper helper) {
+        return helper.getBlockEntity(new BlockPos(3, 0, 1), TileEntityEnergyCube.class).energyContainer().getAmountAsLong()
+               + helper.getBlockEntity(new BlockPos(3, 0, 5), TileEntityEnergyCube.class).energyContainer().getAmountAsLong();
+    }
+
     @GameTest(setupTicks = SharedConstants.TICKS_PER_SECOND, timeoutTicks = 10 * SharedConstants.TICKS_PER_SECOND)
     @TestHolder(description = "Breaking a cable of a loop keeps the network (same network, one transmitter less, same energy, the broken cable's acceptor"
                               + " gone) and putting it back adds it to that network again.")
@@ -119,8 +139,8 @@ public class NetworkSplitTest {
         test.onGameTest(MekGameTestHelper.class, helper -> helper.startSequence()
               //Placed after the template so that the cables get neighbour updates for them
               .thenExecute(() -> {
-                  helper.setBlock(new BlockPos(3, 0, 1), MekanismBlocks.BASIC_ENERGY_CUBE.defaultState());
-                  helper.setBlock(new BlockPos(3, 0, 5), MekanismBlocks.BASIC_ENERGY_CUBE.defaultState());
+                  placeCube(helper, new BlockPos(3, 0, 1), Direction.NORTH);
+                  placeCube(helper, new BlockPos(3, 0, 5), Direction.SOUTH);
               })
               .thenIdle(2)
               .thenExecute(() -> {
@@ -132,7 +152,7 @@ public class NetworkSplitTest {
                   long energy = network.getCapacity() / 2 + 3;
                   network.energyContainer.setEnergy(energy, null);
                   before[0] = network;
-                  before[1] = energy;
+                  before[1] = energy + cubeEnergy(helper);
                   helper.setBlock(broken, Blocks.AIR.defaultBlockState());
               })
               .thenIdle(2)
@@ -146,8 +166,7 @@ public class NetworkSplitTest {
                   helper.assertTrue(network != null, "The ring has no network");
                   helper.assertValueEqual(network.transmittersSize(), 23, "ring size after the break");
                   helper.assertValueEqual(network.getAcceptorCount(), 1, "acceptors after the break");
-                  //The energy can only stay the same if the network did not re-form; a re-form would give it back the same amount though, so also check identity
-                  helper.assertValueEqual(energy(network), (long) before[1], "energy after the break");
+                  helper.assertValueEqual(energy(network) + cubeEnergy(helper), (long) before[1], "energy in the ring and the cubes after the break");
                   helper.assertTrue(network == before[0], "Breaking one cable of a loop re-formed the network");
                   helper.assertValueEqual(network.getCapacity(), 23 * cable(helper, 0, 0, 0).getCapacity(), "capacity after the break");
                   helper.setBlock(broken, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState());
@@ -158,7 +177,7 @@ public class NetworkSplitTest {
                   helper.assertTrue(network == before[0], "The replaced cable did not join the ring's network");
                   helper.assertValueEqual(network.transmittersSize(), 24, "ring size after replacing");
                   helper.assertValueEqual(network.getAcceptorCount(), 2, "acceptors after replacing");
-                  helper.assertValueEqual(energy(network), (long) before[1], "energy after replacing");
+                  helper.assertValueEqual(energy(network) + cubeEnergy(helper), (long) before[1], "energy in the ring and the cubes after replacing");
               })
               .thenSucceed()
         );
@@ -168,8 +187,7 @@ public class NetworkSplitTest {
     @TestHolder(description = "When the middle chunk of a charged cable line becomes inaccessible, the line splits into two networks and the cables of that chunk"
                               + " take their shares; when it comes back, it is one network again with all of the energy.")
     public static void inaccessibleChunkKeepsEnergy(final MekGameTestHelper helper) {
-        ChunkPos middle = new ChunkPos(1, 0);
-        long[] state = new long[2];
+        long[] state = new long[1];
         helper.startSequence()
               .thenExecute(() -> {
                   EnergyNetwork network = network(helper, 0, 0, 0);
@@ -178,7 +196,8 @@ public class NetworkSplitTest {
                   network.energyContainer.setEnergy(energy, null);
                   state[0] = energy;
               })
-              .thenExecute(() -> state[1] = helper.setChunkLoadLevel(middle, MekGameTestHelper.INACCESSIBLE_LEVEL))
+              //What TransmitterNetworkRegistry does for the transmitters of a chunk that becomes inaccessible (x 16..31 stand for the middle chunk)
+              .thenExecute(() -> setAccessible(helper, 16, 31, 0, 0, 0, 0, false))
               .thenWaitUntil(() -> {
                   EnergyNetwork left = network(helper, 0, 0, 0);
                   EnergyNetwork right = network(helper, LINE - 1, 0, 0);
@@ -188,12 +207,11 @@ public class NetworkSplitTest {
               .thenExecute(() -> {
                   EnergyNetwork left = network(helper, 0, 0, 0);
                   EnergyNetwork right = network(helper, LINE - 1, 0, 0);
-                  ChunkPos middleChunk = helper.absolutePos(middle);
                   long inMiddle = 0;
                   int middleCables = 0;
                   for (int x = 0; x < LINE; x++) {
                       UniversalCable cable = cable(helper, x, 0, 0);
-                      if (ChunkPos.containing(helper.absolutePos(new BlockPos(x, 0, 0))).equals(middleChunk)) {
+                      if (x >= 16 && x < 32) {
                           helper.assertTrue(!cable.hasTransmitterNetwork(), "Cable " + x + " of the inaccessible chunk is still in a network");
                           inMiddle += cable.getShare();
                           middleCables++;
@@ -209,7 +227,7 @@ public class NetworkSplitTest {
                   helper.assertTrue(Math.abs(energy(left) - perCable * left.transmittersSize()) <= LINE, "The left half holds " + energy(left)
                                                                                                          + " for " + left.transmittersSize() + " cables");
               })
-              .thenExecute(() -> helper.setChunkLoadLevel(middle, (int) state[1]))
+              .thenExecute(() -> setAccessible(helper, 16, 31, 0, 0, 0, 0, true))
               .thenWaitUntil(() -> {
                   EnergyNetwork network = network(helper, 0, 0, 0);
                   helper.assertTrue(network != null && network == network(helper, LINE - 1, 0, 0), "The line is not one network again");
@@ -223,13 +241,26 @@ public class NetworkSplitTest {
               .thenSucceed();
     }
 
-    //Bench: a large energy network (~80k cables) in layers of combs whose rows are joined at both ends, so removing one row cable keeps it connected
+    private static void setAccessible(MekGameTestHelper helper, int x1, int x2, int y1, int y2, int z1, int z2, boolean accessible) {
+        for (BlockPos pos : BlockPos.betweenClosed(x1, y1, z1, x2, y2, z2)) {
+            if (helper.getLevel().getBlockEntity(helper.absolutePos(pos)) instanceof TileEntityUniversalCable tile) {
+                tile.chunkAccessibilityChange(accessible);
+            }
+        }
+    }
+
+    //Benches: large energy networks (~80k cables) of 4 layers joined by one riser each, so breaking the top riser splits a layer (~20k cables) off.
+    // Comb: rows 2 apart joined at both ends (long loops, the worst case for finding out that breaking a row cable keeps the network connected).
+    // Grid: lines every 8 blocks in both directions, like a cable along every road (short loops).
     private static final int BENCH_WIDTH = 200;
     private static final int BENCH_LAYERS = 4;
     private static final int BENCH_ROUNDS = 4;
-    private static final String BENCH = MekanismTests.MODID + ":split_bench";
-    @RegisterStructureTemplate(BENCH)
-    public static final Supplier<StructureTemplate> BENCH_TEMPLATE = StructureTemplateBuilder.lazy(BENCH_WIDTH, 2 * BENCH_LAYERS - 1, BENCH_WIDTH, builder -> {
+    private static final int GRID_WIDTH = 288;
+    private static final int GRID_SPACING = 8;
+    private static final String BENCH_COMB = MekanismTests.MODID + ":split_bench_comb";
+    private static final String BENCH_GRID = MekanismTests.MODID + ":split_bench_grid";
+    @RegisterStructureTemplate(BENCH_COMB)
+    public static final Supplier<StructureTemplate> BENCH_COMB_TEMPLATE = StructureTemplateBuilder.lazy(BENCH_WIDTH, 2 * BENCH_LAYERS - 1, BENCH_WIDTH, builder -> {
         BlockState cable = MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState();
         for (int layer = 0; layer < BENCH_LAYERS; layer++) {
             int y = 2 * layer;
@@ -239,15 +270,26 @@ public class NetworkSplitTest {
             builder.fill(0, y, 0, 0, y, BENCH_WIDTH - 2, cable);
             builder.fill(BENCH_WIDTH - 1, y, 0, BENCH_WIDTH - 1, y, BENCH_WIDTH - 2, cable);
             if (layer > 0) {
-                //One riser from the layer below: breaking it splits the layers above off
                 builder.set(BENCH_WIDTH / 2, y - 1, BENCH_WIDTH / 2, cable);
             }
         }
         return builder;
     });
-    private static final BlockPos BENCH_ROW_CABLE = new BlockPos(BENCH_WIDTH / 2 + 1, 0, BENCH_WIDTH / 2);
-    private static final BlockPos BENCH_RISER = new BlockPos(BENCH_WIDTH / 2, 2 * BENCH_LAYERS - 3, BENCH_WIDTH / 2);
-    private static final ChunkPos BENCH_CHUNK = new ChunkPos(BENCH_WIDTH / 32, BENCH_WIDTH / 32 + 2);
+    @RegisterStructureTemplate(BENCH_GRID)
+    public static final Supplier<StructureTemplate> BENCH_GRID_TEMPLATE = StructureTemplateBuilder.lazy(GRID_WIDTH + 1, 2 * BENCH_LAYERS - 1, GRID_WIDTH + 1, builder -> {
+        BlockState cable = MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState();
+        for (int layer = 0; layer < BENCH_LAYERS; layer++) {
+            int y = 2 * layer;
+            for (int line = 0; line <= GRID_WIDTH; line += GRID_SPACING) {
+                builder.fill(0, y, line, GRID_WIDTH, y, line, cable);
+                builder.fill(line, y, 0, line, y, GRID_WIDTH, cable);
+            }
+            if (layer > 0) {
+                builder.set(GRID_WIDTH / 2, y - 1, GRID_WIDTH / 2, cable);
+            }
+        }
+        return builder;
+    });
 
     private static final class TickTimer {
 
@@ -266,67 +308,81 @@ public class NetworkSplitTest {
             NeoForge.EVENT_BUS.unregister(end);
         }
 
-        private void report(String what, @Nullable EnergyNetwork network) {
-            Mekanism.logger.info("NetworkSplitTest bench {}: max post tick handlers {} ms; network size {}", what, maxNanos / 1_000_000.0,
+        private void report(String bench, String what, @Nullable EnergyNetwork network) {
+            Mekanism.logger.info("NetworkSplitTest bench {} {}: max post tick handlers {} ms; network size {}", bench, what, maxNanos / 1_000_000.0,
                   network == null ? 0 : network.transmittersSize());
             maxNanos = 0;
         }
     }
 
-    @GameTest(template = BENCH, setupTicks = 5 * SharedConstants.TICKS_PER_SECOND, timeoutTicks = 300 * SharedConstants.TICKS_PER_SECOND, batch = "split-bench")
-    @TestHolder(description = "Bench: removes and restores cables of an ~80k cable energy network (one row cable, a chunk becoming inaccessible, a riser that"
-                              + " splits a layer off) and logs the post tick handler time of each; checks it is one network again after each.")
-    public static void splitBench(final MekGameTestHelper helper) {
+    @GameTest(template = BENCH_COMB, setupTicks = 5 * SharedConstants.TICKS_PER_SECOND, timeoutTicks = 300 * SharedConstants.TICKS_PER_SECOND, batch = "split-bench-comb")
+    @TestHolder(description = "Bench (comb of ~80k cables): removes and restores a row cable, a chunk's cables (inaccessible) and a riser that splits a layer off,"
+                              + " logs the post tick handler time of each, and checks it is one network again after each.")
+    public static void splitBenchComb(final MekGameTestHelper helper) {
+        runBench(helper, "comb", BENCH_WIDTH - 1, BENCH_WIDTH - 2, new BlockPos(BENCH_WIDTH / 2 + 1, 0, BENCH_WIDTH / 2),
+              new BlockPos(BENCH_WIDTH / 2, 2 * BENCH_LAYERS - 3, BENCH_WIDTH / 2), 96, 128);
+    }
+
+    @GameTest(template = BENCH_GRID, setupTicks = 5 * SharedConstants.TICKS_PER_SECOND, timeoutTicks = 300 * SharedConstants.TICKS_PER_SECOND, batch = "split-bench-grid")
+    @TestHolder(description = "Bench (grid of ~80k cables, a line every 8 blocks): removes and restores a line cable, a chunk's cables (inaccessible) and a riser"
+                              + " that splits a layer off, logs the post tick handler time of each, and checks it is one network again after each.")
+    public static void splitBenchGrid(final MekGameTestHelper helper) {
+        runBench(helper, "grid", GRID_WIDTH, GRID_WIDTH, new BlockPos(GRID_WIDTH / 2 + 3, 0, GRID_WIDTH / 2),
+              new BlockPos(GRID_WIDTH / 2, 2 * BENCH_LAYERS - 3, GRID_WIDTH / 2), 96, 96);
+    }
+
+    private static void runBench(MekGameTestHelper helper, String bench, int farX, int farZ, BlockPos lineCable, BlockPos riser, int chunkX, int chunkZ) {
         TickTimer timer = new TickTimer();
-        int[] state = new int[2];
+        int[] size = new int[1];
+        int top = 2 * BENCH_LAYERS - 2;
         var sequence = helper.startSequence()
               .thenExecute(() -> {
                   EnergyNetwork network = network(helper, 0, 0, 0);
-                  helper.assertTrue(network != null && network == network(helper, BENCH_WIDTH - 1, 2 * BENCH_LAYERS - 2, BENCH_WIDTH - 2), "The bench is not one network");
-                  state[0] = network.transmittersSize();
+                  helper.assertTrue(network != null && network == network(helper, farX, top, farZ), "The bench is not one network");
+                  size[0] = network.transmittersSize();
                   network.energyContainer.setEnergy(network.getCapacity() / 2, null);
-                  Mekanism.logger.info("NetworkSplitTest bench: {} cables", state[0]);
+                  Mekanism.logger.info("NetworkSplitTest bench {}: {} cables", bench, size[0]);
                   timer.register();
               })
               .thenIdle(20)
-              .thenExecute(() -> timer.report("idle", network(helper, 0, 0, 0)));
+              .thenExecute(() -> timer.report(bench, "idle", network(helper, 0, 0, 0)));
         for (int round = 1; round <= BENCH_ROUNDS; round++) {
             String r = " #" + round;
             sequence = sequence
-                  .thenExecute(() -> helper.setBlock(BENCH_ROW_CABLE, Blocks.AIR.defaultBlockState()))
+                  .thenExecute(() -> helper.setBlock(lineCable, Blocks.AIR.defaultBlockState()))
                   .thenIdle(5)
-                  .thenExecute(() -> timer.report("break row cable" + r, network(helper, 0, 0, 0)))
-                  .thenExecute(() -> helper.setBlock(BENCH_ROW_CABLE, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState()))
+                  .thenExecute(() -> timer.report(bench, "break line cable" + r, network(helper, 0, 0, 0)))
+                  .thenExecute(() -> helper.setBlock(lineCable, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState()))
                   .thenIdle(5)
                   .thenExecute(() -> {
-                      timer.report("replace row cable" + r, network(helper, 0, 0, 0));
-                      assertBenchNetwork(helper, state[0]);
+                      timer.report(bench, "replace line cable" + r, network(helper, 0, 0, 0));
+                      assertBenchNetwork(helper, farX, top, farZ, size[0]);
                   })
-                  .thenExecute(() -> state[1] = helper.setChunkLoadLevel(BENCH_CHUNK, MekGameTestHelper.INACCESSIBLE_LEVEL))
+                  .thenExecute(() -> setAccessible(helper, chunkX, chunkX + 15, 0, top, chunkZ, chunkZ + 15, false))
                   .thenIdle(5)
-                  .thenExecute(() -> timer.report("chunk inaccessible" + r, network(helper, 0, 0, 0)))
-                  .thenExecute(() -> helper.setChunkLoadLevel(BENCH_CHUNK, state[1]))
+                  .thenExecute(() -> timer.report(bench, "chunk inaccessible" + r, network(helper, 0, 0, 0)))
+                  .thenExecute(() -> setAccessible(helper, chunkX, chunkX + 15, 0, top, chunkZ, chunkZ + 15, true))
                   .thenIdle(5)
                   .thenExecute(() -> {
-                      timer.report("chunk accessible" + r, network(helper, 0, 0, 0));
-                      assertBenchNetwork(helper, state[0]);
+                      timer.report(bench, "chunk accessible" + r, network(helper, 0, 0, 0));
+                      assertBenchNetwork(helper, farX, top, farZ, size[0]);
                   })
-                  .thenExecute(() -> helper.setBlock(BENCH_RISER, Blocks.AIR.defaultBlockState()))
+                  .thenExecute(() -> helper.setBlock(riser, Blocks.AIR.defaultBlockState()))
                   .thenIdle(5)
-                  .thenExecute(() -> timer.report("break riser (split)" + r, network(helper, 0, 0, 0)))
-                  .thenExecute(() -> helper.setBlock(BENCH_RISER, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState()))
+                  .thenExecute(() -> timer.report(bench, "break riser (split)" + r, network(helper, 0, 0, 0)))
+                  .thenExecute(() -> helper.setBlock(riser, MekanismBlocks.BASIC_UNIVERSAL_CABLE.defaultState()))
                   .thenIdle(5)
                   .thenExecute(() -> {
-                      timer.report("replace riser (merge)" + r, network(helper, 0, 0, 0));
-                      assertBenchNetwork(helper, state[0]);
+                      timer.report(bench, "replace riser (merge)" + r, network(helper, 0, 0, 0));
+                      assertBenchNetwork(helper, farX, top, farZ, size[0]);
                   });
         }
         sequence.thenExecute(timer::unregister).thenSucceed();
     }
 
-    private static void assertBenchNetwork(MekGameTestHelper helper, int size) {
+    private static void assertBenchNetwork(MekGameTestHelper helper, int farX, int farY, int farZ, int size) {
         EnergyNetwork network = network(helper, 0, 0, 0);
-        helper.assertTrue(network != null && network == network(helper, BENCH_WIDTH - 1, 2 * BENCH_LAYERS - 2, BENCH_WIDTH - 2), "The bench is not one network");
+        helper.assertTrue(network != null && network == network(helper, farX, farY, farZ), "The bench is not one network");
         helper.assertValueEqual(network.transmittersSize(), size, "bench network size");
     }
 }
