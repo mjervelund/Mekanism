@@ -1,11 +1,11 @@
 package mekanism.common.content.network;
 
-import it.unimi.dsi.fastutil.objects.Reference2LongMap;
-import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import mekanism.api.functions.ConstantPredicates;
 import mekanism.api.math.MathUtils;
@@ -146,13 +146,15 @@ public class EnergyNetwork extends DynamicBufferedNetwork<EnergyHandler, EnergyN
             capacities[i++] = transmitter.getCapacity();
         }
         long[] shares = CapacitySplit.split(capacities, energyContainer.getAmountAsLong());
-        Reference2LongMap<UniversalCable> leavingShares = new Reference2LongOpenHashMap<>(leaving.size());
+        Set<UniversalCable> leavingSet = new ReferenceOpenHashSet<>(leaving);
         i = 0;
         for (UniversalCable transmitter : transmitters) {
-            leavingShares.put(transmitter, shares[i++]);
+            if (leavingSet.contains(transmitter)) {
+                transmitter.setSaveShare(shares[i]);
+            }
+            i++;
         }
         for (UniversalCable transmitter : leaving) {
-            transmitter.setSaveShare(leavingShares.getLong(transmitter));
             transmitter.takeShare(null);
         }
     }

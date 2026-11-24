@@ -3,7 +3,6 @@ package mekanism.common.lib.transmitter;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongList;
@@ -151,7 +150,7 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
 
     /// Whether this network may stay formed when some of its transmitters are removed or unloaded, instead of being invalidated and re-formed from all
     /// of its transmitters (see [#removeInvalidKeepingNetwork()]). Networks that enable this implement [#takeSharesOfLeavingTransmitters] and
-    /// [#onTransmittersRemoved()].
+    /// [#onTransmittersRemoved].
     protected boolean keepsNetworkOnRemoval() {
         return false;
     }
@@ -160,10 +159,11 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
     ///
     /// Invalidating a network makes every one of its transmitters take its share, become an orphan, get walked again and join a new network (with new
     /// acceptor lookups, save shares and client updates for each). For a large network that is a lot of work every time a single transmitter at its edge
-    /// unloads. Removing transmitters can only split a network, never join it with anything, so instead walk the remaining transmitters through this
-    /// network's own position map (the same connection check as [TransmitterNetworkRegistry.OrphanPathFinder], but no world lookups) starting next to
-    /// the removed ones. If they are still connected, the network just drops the removed transmitters. If they fell apart, the largest part stays in
-    /// this network and only the transmitters of the smaller parts take their shares and become orphans, which then form their own networks as usual.
+    /// unloads. Removing transmitters can only split a network, never join it with anything, so instead find out from the transmitters next to the
+    /// removed ones whether the rest is still connected, through this network's own position map (the same connection check as
+    /// [TransmitterNetworkRegistry.OrphanPathFinder], but no world lookups) and only as far as needed (see [NetworkPartFinder]). If it is, the network
+    /// just drops the removed transmitters. If it fell apart, the largest part stays in this network and only the transmitters of the smaller parts take
+    /// their shares and become orphans, which then form their own networks as usual.
     ///
     /// @return `false` if nothing was changed and the network has to be invalidated as before.
     private boolean removeInvalidKeepingNetwork() {
@@ -176,55 +176,42 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
                 removed.add(transmitter);
             }
         }
-        int remaining = transmittersSize() - removed.size();
-        if (removed.isEmpty() || remaining == 0) {
-            return false;
-        }
-        //Walk the remaining transmitters from the ones next to the removed transmitters
-        LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
-        LongSet visited = new LongOpenHashSet(remaining);
-        List<LongList> parts = new ArrayList<>();
-        for (TRANSMITTER removedTransmitter : removed) {
-            long removedPos = removedTransmitter.getWorldPositionLong();
-            for (Direction side : EnumUtils.DIRECTIONS) {
-                long start = WorldUtils.relativePos(removedPos, side);
-                if (!visited.contains(start)) {
-                    TRANSMITTER transmitter = getTransmitter(start);
-                    if (transmitter != null && transmitter.isValid()) {
-                        parts.add(walkConnected(start, queue, visited));
-                        if (visited.size() == remaining) {
-                            break;
-                        }
-                    }
-                }
-            }
-            if (visited.size() == remaining) {
-                break;
-            }
-        }
-        if (visited.size() != remaining) {
-            //Some transmitters cannot be reached from next to the removed ones (the network was not connected the way we expect): re-form it
+        if (removed.isEmpty() || removed.size() == transmittersSize()) {
             return false;
         }
         for (TRANSMITTER removedTransmitter : removed) {
             positionedTransmitters.remove(removedTransmitter.getWorldPositionLong());
+        }
+        LongList starts = new LongArrayList();
+        LongSet checked = new LongOpenHashSet();
+        for (TRANSMITTER removedTransmitter : removed) {
+            long removedPos = removedTransmitter.getWorldPositionLong();
+            for (Direction side : EnumUtils.DIRECTIONS) {
+                long pos = WorldUtils.relativePos(removedPos, side);
+                if (checked.add(pos) && positionedTransmitters.containsKey(pos)) {
+                    starts.add(pos);
+                }
+            }
+        }
+        if (starts.isEmpty()) {
+            //None of the transmitters that are left was next to a removed one (the network was not connected the way we expect): re-form it
+            for (TRANSMITTER removedTransmitter : removed) {
+                positionedTransmitters.put(removedTransmitter.getWorldPositionLong(), removedTransmitter);
+            }
+            return false;
+        }
+        List<TRANSMITTER> gone = new ArrayList<>(removed);
+        for (TRANSMITTER removedTransmitter : removed) {
             acceptorCache.removeTransmitter(removedTransmitter);
             removedTransmitter.setTransmitterNetwork(null, false);
         }
-        if (parts.size() > 1) {
-            //Keep the largest part, the others leave and form their own networks
-            LongList largest = parts.getFirst();
-            for (LongList part : parts) {
-                if (part.size() > largest.size()) {
-                    largest = part;
-                }
-            }
-            List<TRANSMITTER> leaving = new ArrayList<>(remaining - largest.size());
-            for (LongList part : parts) {
-                if (part != largest) {
-                    for (LongIterator iterator = part.iterator(); iterator.hasNext(); ) {
-                        leaving.add(positionedTransmitters.get(iterator.nextLong()));
-                    }
+        List<LongList> cutOff = starts.size() == 1 ? List.of() : new NetworkPartFinder<>(positionedTransmitters).findCutOffParts(starts);
+        if (!cutOff.isEmpty()) {
+            //The parts cut off from the rest leave and form their own networks
+            List<TRANSMITTER> leaving = new ArrayList<>();
+            for (LongList part : cutOff) {
+                for (LongIterator iterator = part.iterator(); iterator.hasNext(); ) {
+                    leaving.add(positionedTransmitters.get(iterator.nextLong()));
                 }
             }
             takeSharesOfLeavingTransmitters(leaving);
@@ -234,32 +221,10 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
                 transmitter.setTransmitterNetwork(null);
                 TransmitterNetworkRegistry.registerOrphanTransmitter(transmitter);
             }
+            gone.addAll(leaving);
         }
-        onTransmittersRemoved();
+        onTransmittersRemoved(gone);
         return true;
-    }
-
-    /// Collects the transmitters of this network connected to the one at `start` (which must be a valid transmitter of this network), marking them visited.
-    private LongList walkConnected(long start, LongArrayFIFOQueue queue, LongSet visited) {
-        LongList part = new LongArrayList();
-        visited.add(start);
-        queue.enqueue(start);
-        while (!queue.isEmpty()) {
-            long pos = queue.dequeueLong();
-            part.add(pos);
-            TRANSMITTER transmitter = positionedTransmitters.get(pos);
-            for (Direction side : EnumUtils.DIRECTIONS) {
-                long neighborPos = WorldUtils.relativePos(pos, side);
-                if (!visited.contains(neighborPos)) {
-                    TRANSMITTER neighbor = positionedTransmitters.get(neighborPos);
-                    if (neighbor != null && neighbor.isValid() && transmitter.isValidTransmitterBasic(neighbor.getTransmitterTile(), side)) {
-                        visited.add(neighborPos);
-                        queue.enqueue(neighborPos);
-                    }
-                }
-            }
-        }
-        return part;
     }
 
     /// Called before the given transmitters (still part of this network) leave it as orphans because removing other transmitters disconnected them from
@@ -269,7 +234,9 @@ public abstract class DynamicNetwork<ACCEPTOR, NETWORK extends DynamicNetwork<AC
     }
 
     /// Called after [#removeInvalidKeepingNetwork()] removed transmitters from this network.
-    protected void onTransmittersRemoved() {
+    ///
+    /// @param gone The transmitters that are no longer part of this network (removed ones and ones that left as orphans).
+    protected void onTransmittersRemoved(List<TRANSMITTER> gone) {
     }
 
     protected void removeInvalid(@Nullable TRANSMITTER triggerTransmitter) {
