@@ -115,6 +115,38 @@ public abstract class DynamicBufferedNetwork<ACCEPTOR, NETWORK extends DynamicBu
     }
 
     @Override
+    protected void onTransmittersRemoved(List<TRANSMITTER> gone) {
+        super.onTransmittersRemoved(gone);
+        LongSet goneChunks = new LongOpenHashSet();
+        long goneCapacity = 0;
+        for (TRANSMITTER transmitter : gone) {
+            goneChunks.add(ChunkPos.pack(transmitter.getBlockPos()));
+            goneCapacity = MathUtils.addClamped(goneCapacity, transmitter.getCapacity());
+        }
+        for (LongIterator iterator = goneChunks.iterator(); iterator.hasNext(); ) {
+            long chunk = iterator.nextLong();
+            if (!TransmitterNetworkRegistry.hasTransmitterInChunk(this, chunk)) {
+                chunks.remove(chunk);
+            }
+        }
+        if (capacity == Long.MAX_VALUE || goneCapacity == Long.MAX_VALUE) {
+            //The sum was clamped, so it can't be reduced by what left
+            updateCapacity();
+        } else {
+            capacity -= goneCapacity;
+        }
+        //Like invalidating the network does for the transmitters that are still there: the buffer can't hold more than they can
+        clampBuffer();
+        if (limitsSaveDirtying()) {
+            //Mark all chunks once, like a network that was re-formed: the shares saved in them so far add up to what the network held before
+            saveMarkForced = true;
+            deferMarkForSave();
+        }
+        needsUpdate = true;
+        packetRange = null;
+    }
+
+    @Override
     public void onContentsChanged() {
         markDirty();
     }

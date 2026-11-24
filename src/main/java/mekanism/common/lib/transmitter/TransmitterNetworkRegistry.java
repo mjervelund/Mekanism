@@ -202,6 +202,23 @@ public class TransmitterNetworkRegistry {
         return dimData != null && dimData.unloadingChunks.contains(ChunkPos.pack(transmitter.getBlockPos()));
     }
 
+    /// @return `true` if one of the transmitters tracked in the given chunk belongs to the given network.
+    static boolean hasTransmitterInChunk(DynamicNetwork<?, ?, ?> network, long chunkPos) {
+        Level world = network.getWorld();
+        DimData dimData = world == null ? null : dimDataOrNull(world.dimension());
+        if (dimData != null) {
+            Collection<Transmitter<?, ?, ?>> chunkTransmitters = dimData.transmitters.get(chunkPos);
+            if (chunkTransmitters != null) {
+                for (Transmitter<?, ?, ?> transmitter : chunkTransmitters) {
+                    if (transmitter.getTransmitterNetwork() == network) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     /// Marks the chunks of every network that limits its save marks and makes their next save recompute the shares, so that the final save of a
     /// stopping server stores the current contents. Runs before the server saves and unloads its chunks for the last time.
     public static void prepareFinalSave() {
