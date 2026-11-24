@@ -15,10 +15,12 @@ import net.minecraft.core.Direction;
 
 /// Finds out whether the transmitters of a network that are left after some were removed are still connected, walking as little of the network as it can.
 ///
-/// It searches from every transmitter next to the removed ones at once, one step per search in turn, through the network's own position map. Searches that
-/// meet are joined. It stops as soon as at most one search can still grow: every other search has then walked a whole part of the network that is cut off
-/// from the rest. So if the network is still connected, it only walks until the searches met (around the loop that got cut, for a grid of cables); if it
-/// fell apart, it walks the smaller parts (and as much of the largest part), never the rest of the largest part.
+/// It searches from every transmitter next to the removed ones at once, one step per search in turn, through the network's own position map. Two transmitters
+/// are connected if [Transmitter#isValidTransmitterBasic] says so, as when the network was formed; all transmitters of one network support its transmission
+/// type, so only [Transmitter#canConnectMutual] is checked. Searches that meet are joined. It stops as soon as at most one search can still grow: every
+/// other search has then walked a whole part of the network that is cut off from the rest. So if the network is still connected, it only walks until the
+/// searches met (around the loop that got cut, for a grid of cables); if it fell apart, it walks the smaller parts (and as much of the largest part), never
+/// the rest of the largest part.
 final class NetworkPartFinder<TRANSMITTER extends Transmitter<?, ?, TRANSMITTER>> {
 
     private final Long2ObjectMap<TRANSMITTER> transmitters;
@@ -96,7 +98,7 @@ final class NetworkPartFinder<TRANSMITTER extends Transmitter<?, ?, TRANSMITTER>
         for (Direction side : EnumUtils.DIRECTIONS) {
             long neighborPos = WorldUtils.relativePos(pos, side);
             TRANSMITTER neighbor = transmitters.get(neighborPos);
-            if (neighbor != null && neighbor.isValid() && transmitter.isValidTransmitterBasic(neighbor.getTransmitterTile(), side)) {
+            if (neighbor != null && neighbor.isValid() && transmitter.canConnectMutual(side, neighbor.getTransmitterTile())) {
                 int owner = owners.putIfAbsent(neighborPos, search);
                 if (owner == -1) {
                     queues.get(search).enqueue(neighborPos);
