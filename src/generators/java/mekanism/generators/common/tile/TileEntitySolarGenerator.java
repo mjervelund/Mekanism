@@ -7,6 +7,8 @@ import mekanism.api.RelativeSide;
 import mekanism.api.inventory.IInventorySlot;
 import mekanism.api.math.MathUtils;
 import mekanism.common.capabilities.energy.BasicEnergyContainer;
+import mekanism.common.content.network.EnergyNetwork;
+import mekanism.common.content.network.transmitter.UniversalCable;
 import mekanism.common.capabilities.holder.container.IContainerHolder;
 import mekanism.common.capabilities.holder.container.MekContainerHelper;
 import mekanism.common.integration.computer.SpecialComputerMethodWrapper.ComputerIInventorySlotWrapper;
@@ -16,16 +18,20 @@ import mekanism.common.inventory.container.MekanismContainer;
 import mekanism.common.inventory.container.sync.SyncableBoolean;
 import mekanism.common.inventory.container.sync.SyncableInt;
 import mekanism.common.inventory.slot.EnergyInventorySlot;
+import mekanism.common.lib.transmitter.ConnectionType;
+import mekanism.common.tile.transmitter.TileEntityUniversalCable;
 import mekanism.common.util.LightLevelUtils;
 import mekanism.generators.common.config.MekanismGeneratorsConfig;
 import mekanism.generators.common.registries.GeneratorsBlocks;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biome.Precipitation;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.UnknownNullability;
@@ -50,6 +56,11 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
     private long lastProcessedTick = Long.MIN_VALUE;
     /// Game ticks the current processed tick stands for.
     private int tickSpan = 1;
+    /// The universal cable on this panel's energy side, if any (see [#emitEnergy]).
+    @Nullable
+    private TileEntityUniversalCable outputCable;
+    /// Whether the emit may add straight into a cable network's buffer (see [#emitEnergy]). Only GameTests turn it off, to compare both paths.
+    public boolean directNetworkInsert = true;
     @UnknownNullability//Initialized via getInitialInventory
     @WrappingComputerMethod(wrapper = ComputerIInventorySlotWrapper.class, methodNames = "getEnergyItem", docPlaceholder = "energy item slot")
     EnergyInventorySlot energySlot;
@@ -180,6 +191,52 @@ public class TileEntitySolarGenerator extends TileEntityGenerator {
         }
         //Emit early if the buffer could not take this tick's production, unless the last attempt sent nothing (the targets are full: wait for our tick)
         return lastEmitSent && container.getNeededAsLong() < Math.max(production, 1);
+    }
+
+    /// Large solar fields put tens of thousands of panels on universal cables, and every emit inserted into the cable through its capability: a root
+    /// transaction (NeoForge stack-walks on every open), the cable's proxy and side checks, its last-energy journal snapshot, and a commit. For a panel
+    /// whose energy side is a universal cable in a network, add the energy straight into the network's buffer instead: the cable's handler on that side
+    /// inserts into exactly that container (no rate limit, accepts everything up to its capacity), so the amounts are the same; the network then emits
+    /// once per tick for all of its producers, as before. The cable's last-energy tracker is not updated, but nothing reads it for transmitters.
+    /// Anything else (no cable, an orphan cable, a side that is disconnected, pull-only or redstone-disabled) takes the normal emit.
+    @Override
+    protected int emitEnergy(ServerLevel level) {
+        //Only with the bottom as the single energy side: with several sides (advanced panel) the normal emit splits the energy between them
+        if (directNetworkInsert && getEnergySides() == ENERGY_SIDES) {
+            EnergyNetwork network = outputNetwork(level);
+            if (network != null) {
+                BasicEnergyContainer container = energyContainer();
+                long sent = Math.min(container.getAmountAsInt(), network.energyContainer.getNeededAsLong());
+                if (sent > 0) {
+                    network.energyContainer.setEnergy(network.energyContainer.getAmountAsLong() + sent, null);
+                    container.setEnergy(container.getAmountAsLong() - sent, null);
+                }
+                return (int) sent;
+            }
+        }
+        return super.emitEnergy(level);
+    }
+
+    /// The network of the universal cable on this panel's energy side, if that cable accepts energy from this panel.
+    @Nullable
+    private EnergyNetwork outputNetwork(ServerLevel level) {
+        Direction side = RelativeSide.BOTTOM.getDirection(getDirection());
+        TileEntityUniversalCable cable = outputCable;
+        if (cable == null || cable.isRemoved() || !cable.getBlockPos().equals(worldPosition.relative(side))) {
+            BlockEntity below = level.getBlockEntity(worldPosition.relative(side));
+            outputCable = cable = below instanceof TileEntityUniversalCable c ? c : null;
+            if (cable == null) {
+                return null;
+            }
+        }
+        UniversalCable transmitter = cable.getTransmitter();
+        Direction from = side.getOpposite();
+        //Same conditions as the cable's energy capability on that side (TileEntityUniversalCable's container holder and canInsert)
+        if (!transmitter.hasTransmitterNetwork() || transmitter.isRedstoneActivated() || transmitter.getConnectionTypeRaw(from) == ConnectionType.NONE
+            || !cable.canInsert(from)) {
+            return null;
+        }
+        return transmitter.getTransmitterNetworkNN();
     }
 
     @Override
