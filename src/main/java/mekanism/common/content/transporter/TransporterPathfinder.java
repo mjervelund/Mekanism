@@ -84,6 +84,10 @@ public final class TransporterPathfinder {
             if (test != null && checkPath(network, test.path(), stack)) {
                 return new Destination(test, response);
             }
+            if (!canAnyNeighborDeliver(network, dest, stack)) {
+                //The search could only fail, after visiting every transporter it can reach
+                return null;
+            }
             Pathfinder p = new Pathfinder(network, start.getLevel(), dest, start.getBlockPos(), stack, response.itemType(), response.sendingAmount(),
                   (level, pos, tile, s, dataType, dataAmount, side, tx) ->
                         TransporterUtils.canInsert(level, pos, tile, s.color, dataType, dataAmount, side, false, tx));
@@ -93,6 +97,24 @@ public final class TransporterPathfinder {
             }
         }
         return null;
+    }
+
+    /// The pathfinder only finishes at a transporter of this network next to the destination that can emit into it, or that can connect to it when the
+    /// destination is the stack's home (see [Pathfinder#isValidDestination]). When there is no such transporter (e.g. every transporter touching an
+    /// inventory pulls from it), a search can never succeed and would visit the whole reachable part of the network first, so it is skipped.
+    private static boolean canAnyNeighborDeliver(InventoryNetwork network, BlockPos dest, TransporterStack stack) {
+        boolean home = dest.asLong() == stack.homeLocation;
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (Direction direction : EnumUtils.DIRECTIONS) {
+            LogisticalTransporterBase transporter = network.getTransmitter(pos.setWithOffset(dest, direction));
+            if (transporter != null) {
+                Direction towardsDest = direction.getOpposite();
+                if (transporter.canEmitTo(towardsDest) || (home && transporter.canConnect(towardsDest))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Nullable
