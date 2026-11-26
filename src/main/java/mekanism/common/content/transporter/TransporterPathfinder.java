@@ -364,6 +364,8 @@ public final class TransporterPathfinder {
     public static class Pathfinder {
 
         private final LongSet openSet = new LongOpenHashSet();
+        //Open nodes ordered by fScore, so picking the next node is O(log n) instead of a scan over the whole open set
+        private final PathfinderOpenQueue openQueue = new PathfinderOpenQueue();
         private final LongSet closedSet = new LongOpenHashSet();
         private final Long2LongMap navMap = new Long2LongOpenHashMap();
         private final Long2DoubleOpenHashMap gScore = new Long2DoubleOpenHashMap();
@@ -401,6 +403,7 @@ public final class TransporterPathfinder {
             //Note: This is gScore + estimate, but given our gScore starts at zero we just skip getting it back out
             double totalDistance = WorldUtils.distanceBetween(start, finalNode);
             fScore.put(start.asLong(), totalDistance);
+            openQueue.add(start.asLong(), totalDistance);
             boolean hasValidDirection = false;
             LogisticalTransporterBase startTransmitter = network.getTransmitter(start);
             BlockPos.MutableBlockPos neighbor = new BlockPos.MutableBlockPos();
@@ -424,12 +427,14 @@ public final class TransporterPathfinder {
             //If the blocks are very close together, allow for path finding up to four blocks away
             double maxSearchDistance = Math.max(2 * totalDistance, 4);
             while (!openSet.isEmpty()) {
+                //Lowest fScore open node; queue entries for nodes that left the open set or got a lower fScore since are stale and skipped
                 long currentNodeLong = Long.MAX_VALUE;
-                double lowestFScore = 0;
-                for (long node : openSet) {
-                    if (currentNodeLong == Long.MAX_VALUE || fScore.get(node) < lowestFScore) {
+                while (!openQueue.isEmpty()) {
+                    double queuedScore = openQueue.peekScore();
+                    long node = openQueue.poll();
+                    if (openSet.contains(node) && fScore.get(node) == queuedScore) {
                         currentNodeLong = node;
-                        lowestFScore = fScore.get(node);
+                        break;
                     }
                 }
                 if (currentNodeLong == Long.MAX_VALUE) {
@@ -461,8 +466,10 @@ public final class TransporterPathfinder {
                             navMap.put(neighborLong, currentNodeLong);
                             gScore.put(neighborLong, tentativeG);
                             //Put the gScore plus estimate in the final score
-                            fScore.put(neighborLong, tentativeG + WorldUtils.distanceBetween(neighbor, finalNode));
+                            double neighborFScore = tentativeG + WorldUtils.distanceBetween(neighbor, finalNode);
+                            fScore.put(neighborLong, neighborFScore);
                             openSet.add(neighborLong);
+                            openQueue.add(neighborLong, neighborFScore);
                         }
                     } else if (isValidDestination(currentNode, currentNodeTransmitter, direction, neighbor, chunkMap, transaction)) {
                         //Else if the neighbor is the destination, and we can send to it
