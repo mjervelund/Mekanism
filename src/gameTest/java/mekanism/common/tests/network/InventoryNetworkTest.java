@@ -350,6 +350,34 @@ public class InventoryNetworkTest {
         );
     }
 
+    @GameTest(timeoutTicks = 10 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
+    @TestHolder(description = "Tests that an inventory whose only neighbouring transporter pulls from it is not used as a destination, "
+                              + "even when it is the closest one, and items go to the next destination instead.")
+    public static void pullOnlyInventoryNotADestination(final DynamicTest test) {
+        test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(2, 1, 8)
+              //Start barrel
+              .set(0, 0, 0, Blocks.BARREL.defaultBlockState())
+              .set(0, 0, 1, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState(), StructureBuilderUtils.configured(Direction.NORTH))
+              .fill(0, 0, 2, 0, 0, 6, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+              //Closest inventory, but the transporter next to it pulls from it
+              .set(1, 0, 3, Blocks.BARREL.defaultBlockState())
+              .set(0, 0, 3, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState(), StructureBuilderUtils.configured(Direction.EAST))
+              //Far destination
+              .set(0, 0, 7, Blocks.BARREL.defaultBlockState())
+        );
+
+        test.onGameTest(TransmitterTestHelper.class, helper -> helper.startSequence()
+              .thenExecute(() -> {
+                  helper.insertIntoContainer(0, 0, 0, Items.STONE);
+                  helper.resetTransporterDelay(0, 0, 1);
+              })
+              .thenExecuteAfter(6 * SharedConstants.TICKS_PER_SECOND, () -> helper.assertContainerContains(0, 0, 7, Items.STONE))
+              .thenExecute(() -> helper.assertContainerEmpty(1, 0, 3))
+              .thenExecute(() -> helper.assertContainerEmpty(0, 0, 0))
+              .thenSucceed()
+        );
+    }
+
     @GameTest(timeoutTicks = 16 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
     @TestHolder(description = "Tests that any items that are currently en-route to a closer destination will recalculate their paths "
                               + "if the shorter destination is removed.")
