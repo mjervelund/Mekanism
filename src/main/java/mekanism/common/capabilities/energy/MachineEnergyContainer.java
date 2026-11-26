@@ -70,6 +70,11 @@ public class MachineEnergyContainer<TILE extends TileEntityMekanism> extends Bas
         return super.getCapacityAsLong();
     }
 
+    /// The capacity derived from the base storage and installed upgrades, without the stored amount that [#getCapacityAsLong()] also accounts for.
+    protected long getCurrentMaxEnergy() {
+        return currentMaxEnergy;
+    }
+
     public void setMaxEnergy(long maxEnergy) {
         this.currentMaxEnergy = maxEnergy;
         ContainerType.ENERGY.clampContents(this, null);
