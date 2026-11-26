@@ -288,6 +288,68 @@ public class InventoryNetworkTest {
               .thenSucceed();
     }
 
+    @GameTest(timeoutTicks = 20 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
+    @TestHolder(description = "Tests that on a grid of transporters items pulled after a closer destination is added go to it, "
+                              + "and that the item already en-route is not lost.")
+    public static void closerDestinationAddedOnGrid(final DynamicTest test) {
+        test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(7, 1, 8)
+              //Start barrel
+              .set(0, 0, 0, Blocks.BARREL.defaultBlockState())
+              //Far destination
+              .set(6, 0, 7, Blocks.BARREL.defaultBlockState())
+
+              .set(0, 0, 1, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState(), StructureBuilderUtils.configured(Direction.NORTH))
+              .fill(0, 0, 2, 6, 0, 6, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+        );
+
+        test.onGameTest(TransmitterTestHelper.class, helper -> helper.startSequence()
+              .thenExecute(() -> {
+                  helper.insertIntoContainer(0, 0, 0, Items.STONE);
+                  helper.resetTransporterDelay(0, 0, 1);
+              })
+              //Once the stone is on its way to the far barrel, add a closer destination (about 6 transporters instead of 11) and send a second item
+              .thenExecuteAfter(SharedConstants.TICKS_PER_SECOND, () -> helper.assertContainerEmpty(0, 0, 0))
+              .thenExecute(() -> helper.setBlock(0, 0, 7, Blocks.BARREL))
+              .thenExecute(() -> {
+                  helper.insertIntoContainer(0, 0, 0, Items.DIRT);
+                  helper.resetTransporterDelay(0, 0, 1);
+              })
+              .thenExecuteAfter(12 * SharedConstants.TICKS_PER_SECOND, () -> helper.assertContainerContains(0, 0, 7, Items.DIRT))
+              .thenExecute(() -> helper.assertValueEqual(helper.getBlockEntity(0, 0, 7, BarrelBlockEntity.class).countItem(Items.STONE)
+                                                         + helper.getBlockEntity(6, 0, 7, BarrelBlockEntity.class).countItem(Items.STONE)
+                                                         + helper.getBlockEntity(0, 0, 0, BarrelBlockEntity.class).countItem(Items.STONE), 1, "Stone in barrels"))
+              .thenSucceed()
+        );
+    }
+
+    @GameTest(timeoutTicks = 12 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
+    @TestHolder(description = "Tests that the destination with the cheapest transporter path wins over one that is closer in a straight line "
+                              + "but only reachable around a wall.")
+    public static void cheapestPathAroundWall(final DynamicTest test) {
+        test.registerGameTestTemplate(() -> StructureTemplateBuilder.withSize(13, 1, 7)
+              //Start barrel
+              .set(6, 0, 0, Blocks.BARREL.defaultBlockState())
+              .set(6, 0, 1, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState(), StructureBuilderUtils.configured(Direction.NORTH))
+              //Grid with a wall of stone at z=3 from x=0 to x=11, the only gap is at x=12
+              .fill(0, 0, 2, 12, 0, 5, MekanismBlocks.BASIC_LOGISTICAL_TRANSPORTER.defaultState())
+              .fill(0, 0, 3, 11, 0, 3, Blocks.STONE.defaultBlockState())
+              //5 blocks away in a straight line, but behind the wall: about 15 transporters around it
+              .set(6, 0, 6, Blocks.BARREL.defaultBlockState())
+              //6 blocks away in a straight line, on the near side of the wall: about 6 transporters
+              .set(0, 0, 1, Blocks.BARREL.defaultBlockState())
+        );
+
+        test.onGameTest(TransmitterTestHelper.class, helper -> helper.startSequence()
+              .thenExecute(() -> {
+                  helper.insertIntoContainer(6, 0, 0, Items.STONE);
+                  helper.resetTransporterDelay(6, 0, 1);
+              })
+              .thenExecuteAfter(8 * SharedConstants.TICKS_PER_SECOND, () -> helper.assertContainerContains(0, 0, 1, Items.STONE))
+              .thenExecute(() -> helper.assertContainerEmpty(6, 0, 6))
+              .thenSucceed()
+        );
+    }
+
     @GameTest(timeoutTicks = 16 * SharedConstants.TICKS_PER_SECOND, setupTicks = SharedConstants.TICKS_PER_SECOND)
     @TestHolder(description = "Tests that any items that are currently en-route to a closer destination will recalculate their paths "
                               + "if the shorter destination is removed.")
