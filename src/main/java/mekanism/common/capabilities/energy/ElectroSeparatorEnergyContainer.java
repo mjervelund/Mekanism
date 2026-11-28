@@ -46,7 +46,9 @@ public class ElectroSeparatorEnergyContainer extends MachineEnergyContainer<Tile
     public void updateMaxEnergy(HolderGetter<Upgrade> upgrades) {
         super.updateMaxEnergy(upgrades);
         if (tile.isMakingHydrogen()) {
-            setMaxEnergy(getCapacityAsLong() * tile.getBaselineMaxOperations() * AttributeEnergy.STORAGE_MULTIPLIER);
+            //Scale the upgrade-derived capacity super just set, not getCapacityAsLong(): that is at least the stored amount, so once the buffer is
+            // full every call (each recipe cache change) would multiply the capacity again and it would grow without bound
+            setMaxEnergy(getCurrentMaxEnergy() * tile.getBaselineMaxOperations() * AttributeEnergy.STORAGE_MULTIPLIER);
         }
     }
 }
